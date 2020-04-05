@@ -20,12 +20,12 @@ Implementation of Sliding Window Protocols
   - [ ] Checksum
   - [ ] Create frame
   - [ ] Create ack
-    - [ ] Create nak
+    - [ ] ~~Create nak~~
   - [ ] Read frame
   - [ ] Read ack
 
 - [ ] Sliding Window Protocols
-  - [ ] Stop and Wait Protocol?
+  - [ ] ~~Stop and Wait Protocol?~~
   - [ ] Go Back N Protocol
   - [ ] Selective Repeat Protocol
 
