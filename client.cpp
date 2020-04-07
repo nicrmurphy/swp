@@ -1,103 +1,67 @@
-// Write CPP code here
-#include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
+#include <errno.h>
 #include <string.h>
+#include <sys/types.h>
 #include <sys/socket.h>
-#include <stdio.h>      /* for printf() and fprintf() */
-#include <sys/types.h>  /* for Socket data types */
-#include <sys/socket.h> /* for socket(), connect(), send(), and recv() */
-#include <netinet/in.h> /* for IP Socket data types */
-#include <arpa/inet.h>  /* for sockaddr_in and inet_addr() */
-#include <stdlib.h>     /* for atoi() */
-#include <string.h>     /* for memset() */
-#include <unistd.h>     /* for close() */
-#include <vector>
-#include <iostream>
-#define MAX 80
-#define PORT 9105
-#define SA struct sockaddr
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
 
-using namespace std;
+#define PORT "7000"
 
-void func(int sockfd)
-{
-    string test = "Test String";
-    //Create char array buffer
-    char *testBuff = new char[4096];
-    int testLength = test.length();
-    strcpy(testBuff, test.c_str());
-    // send length
-    send(sockfd, &testLength, sizeof(testLength), 0);
-    // send message
-    send(sockfd, testBuff, testLength, 0);
-
-    cout << "Sent: " << test << endl;
-}
-
-int main()
-{
-    int sockfd, connfd;
-    struct sockaddr_in servaddr, cli;
-
-    // socket create and verification
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd == -1)
-    {
-        printf("socket creation failed...\n");
-        exit(0);
+int main(int argc, char *argv[]) {
+    // TODO: replace command line arguments with prompts
+    if (argc != 3) {
+        fprintf(stderr, "usage: %s hostname message\n", argv[0]);
+        fprintf(stderr, "ex: %s localhost test\n", argv[0]);
+        fprintf(stderr, "Sending \"exit\" to the server will close the server\n");
+        exit(1);
     }
-    else
-        printf("Socket successfully created..\n");
-    bzero(&servaddr, sizeof(servaddr));
+    char *host = argv[1];
+    char *msg = argv[2];
 
-    cout << "Enter a number to specify the server want to connect to: " << endl;
-    cout << "0 - thing0" << endl;
-    cout << "1 - thing1" << endl;
-    cout << "2 - thing2" << endl;
-    cout << "3 - thing3" << endl;
-    cout << "4 - localhost" << endl;
+    struct addrinfo hints, *servinfo;
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_DGRAM;
 
-    string choice;
-    string ip;
-    cin >> choice;
-    if (choice == "0")
-    {
-        ip = "10.35.195.46";
+    int status;
+    if ((status = getaddrinfo(host, PORT, &hints, &servinfo)) != 0) {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
+        exit(1);
     }
-    else if (choice == "1")
-    {
-        ip = "10.35.195.47";
-    }
-    else if (choice == "2")
-    {
-        ip = "10.35.195.48";
-    }
-    else if (choice == "3")
-    {
-        ip = "10.35.195.49";
-    }
-    else if (choice == "4")
-    {
-        ip = "127.0.0.1";
-    }
-    // assign IP, PORT
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_addr.s_addr = inet_addr(ip.c_str());
-    servaddr.sin_port = htons(PORT);
+    // servinfo now points to a linked list of 1 or more struct addrinfos
 
-    // connect the client socket to server socket
-    if (connect(sockfd, (SA *)&servaddr, sizeof(servaddr)) != 0)
-    {
-        printf("connection with the server failed...\n");
-        exit(0);
+    // loop through all the results and make a socket
+    struct addrinfo *node;
+    int sockfd;
+    for (node = servinfo; node != NULL; node = node->ai_next) {
+        // attempt socket syscall
+        if ((sockfd = socket(node->ai_family, node->ai_socktype, node->ai_protocol)) == -1) {
+            perror("socket");
+            continue;
+        }
+        break;
     }
-    else
-        printf("connected to the server..\n");
 
-    // function for chat
-    func(sockfd);
+    // if successful, node now points to the info of the successfully created socket
+    if (node == NULL) {
+        fprintf(stderr, "failed to create socket\n");
+        exit(1);
+    }
 
-    // close the socket
+    int bytes_sent;
+    if ((bytes_sent = sendto(sockfd, msg, strlen(msg), 0, node->ai_addr, node->ai_addrlen)) == -1) {
+        perror("sendto");
+        exit(1);
+    }
+
+    freeaddrinfo(servinfo); // free the linked list
+
+    printf("sent %d bytes to %s\n", bytes_sent, host);
     close(sockfd);
+
+    return 0;
 }

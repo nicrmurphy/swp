@@ -1,16 +1,13 @@
-main: server client
-	
-server: server.o 
-	g++ -std=c++11 server.o -o server
+CC = g++
+CFLAGS = -Wall -g -std=c++11
 
-client:client.o 
-	g++ client.o -std=c++11 -o client
+all: server client
 	
-server.o: server.cpp
-	g++ -c -std=c++11 server.cpp -o server.o
-	
-client.o: client.cpp
-	g++ -c -std=c++11 client.cpp -o client.o
+server:
+	$(CC) $(CFLAGS) server.cpp -o server
+
+client:
+	$(CC) $(CFLAGS) client.cpp -o client
 
 clean:
-	rm server client *.o
+	rm -rf server client *.dSYM
