@@ -41,12 +41,6 @@ int main(int argc, char *argv[]) {
     struct addrinfo *node;
     int sockfd;
     for (node = servinfo; node != NULL; node = node->ai_next) {
-        char host_addr[INET6_ADDRSTRLEN];
-        inet_ntop(node->ai_family, get_in_addr(node->ai_addr), host_addr, sizeof host_addr);
-        printf("debug: host addr %s\n", host_addr);
-    }
-
-    for (node = servinfo; node != NULL; node = node->ai_next) {
         // attempt socket syscall
         if ((sockfd = socket(node->ai_family, node->ai_socktype, node->ai_protocol)) == -1) {
             perror("socket");
@@ -67,10 +61,6 @@ int main(int argc, char *argv[]) {
     if (node == NULL) {
         fprintf(stderr, "failed to bind socket\n");
         exit(1);
-    } else {
-        char host_addr[INET6_ADDRSTRLEN];
-        inet_ntop(node->ai_family, get_in_addr(node->ai_addr), host_addr, sizeof host_addr);
-        printf("bound socket on host %s\n", host_addr);
     }
 
     freeaddrinfo(servinfo); // free the linked list
