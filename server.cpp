@@ -61,6 +61,10 @@ int main(int argc, char *argv[]) {
     if (node == NULL) {
         fprintf(stderr, "failed to bind socket\n");
         exit(1);
+    } else {
+        char host_addr[INET6_ADDRSTRLEN];
+        inet_ntop(node->ai_family, get_in_addr(node->ai_addr), host_addr, sizeof host_addr);
+        printf("bound socket on host %s\n", host_addr);
     }
 
     freeaddrinfo(servinfo); // free the linked list
