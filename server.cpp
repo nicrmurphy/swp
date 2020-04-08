@@ -14,7 +14,7 @@
 #define HOST NULL   // NULL = localhost
 #define PORT "9898"
 #define MAX_DATA_SIZE 1023 * 9 // 9 kb
-#define MAX_FRAME_SIZE 1024 * 9 + 10  // 9 kb + 
+#define MAX_FRAME_SIZE 1024 * 9 + 10 // to hold extra header data
 
 
 using namespace std;
@@ -111,7 +111,8 @@ int main(int argc, char *argv[]) {
     int databuff_size;
     bool end;
     ofstream dst ("dst");
-    while (1) {
+    bool file_end = false;
+    while (!file_end) {
         // sleep until receives next packet
         if ((bytes_recv = recvfrom(sockfd, frame, MAX_FRAME_SIZE, 0, (struct sockaddr *) &client, &addr_len)) == -1) {
             perror("recvfrom");
@@ -129,6 +130,11 @@ int main(int argc, char *argv[]) {
         if (dst.is_open()) {
             dst.write(data_buff, databuff_size);
             dst.seekp(0, ios::end);
+        }
+
+        if(end){
+            cout << "Received File. Closing" << endl;
+            file_end = true;
         }
     }
     dst.close();

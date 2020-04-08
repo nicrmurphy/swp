@@ -13,7 +13,7 @@
 
 #define PORT "9898"
 #define MAX_DATA_SIZE 1024 * 9  // 9 kb
-#define MAX_FRAME_SIZE 1024 * 9 + 10
+#define MAX_FRAME_SIZE 1024 * 9 + 10 // to hold extra header data
 
 using namespace std;
 
@@ -52,20 +52,27 @@ int main(int argc, char *argv[]) {
     char *filepath = argv[2];
 
     // read in file 
-    char *data;
-    streampos data_len;
+    char data[MAX_DATA_SIZE];
+    long data_len;
     ifstream src(filepath, ios::in | ios::binary | ios::ate);
     if (src.is_open()) {
         data_len = src.tellg();     // fill data_len with size of file in bytes
-        data = new char[data_len];  // allocate memory for data memory block
+        //data = new char[data_len];  // allocate memory for data memory block
         src.seekg(0, ios::beg);     // change stream pointer location to beginning of file
-        src.read(data, data_len);   // read in file contents to data
-        src.close();                // close iostream
+       // src.read(data, data_len);   // read in file contents to data
+       // src.close();                // close iostream
     } else {
         fprintf(stderr, "failed to read file %s\n", filepath);
         exit(1);
     }
 
+    // determine the number of packets required for the transfer
+    int numBlocks = data_len / (MAX_DATA_SIZE);
+    // determine size of last packet
+    int leftover = data_len % (MAX_DATA_SIZE);
+    if(leftover){
+        numBlocks++;
+    }
     // prepare socket
     struct addrinfo hints, *servinfo;
     memset(&hints, 0, sizeof hints);
@@ -103,10 +110,19 @@ int main(int argc, char *argv[]) {
     int bytes_sent = 0, total = 0;
     char frame[MAX_FRAME_SIZE];
     int frame_size;
-    while (total < data_len) {
-        int data_size = (int) data_len - total;
-        data_size = data_size > MAX_DATA_SIZE ? MAX_DATA_SIZE : data_size;
-        frame_size = pack_data(frame,0,data+total, data_size, false);
+    int end = false;
+    // read each section of data from the file, package, and send them 
+    for (int i = 0; i < numBlocks; i++)
+    {
+        
+        int data_size = MAX_DATA_SIZE;
+        if(i == numBlocks - 1){
+            data_size = leftover;
+            end = true;
+        } 
+        // read the data from the file. This should probably later be done in larger chunks
+        src.read(data,data_size);
+        frame_size = pack_data(frame,0,data, data_size, end);
         if ((bytes_sent = sendto(sockfd, frame, frame_size, 0, node->ai_addr, node->ai_addrlen)) == -1) {
             perror("sendto");
             exit(1);
@@ -114,6 +130,7 @@ int main(int argc, char *argv[]) {
         total += bytes_sent;
         cout << "sent " << bytes_sent << " (" << total << "/" << data_len << ") bytes to " << host << "\n";
     }
+    src.close();
 
     cout << endl;
     close(sockfd);
