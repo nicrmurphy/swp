@@ -26,7 +26,7 @@ int main(int argc, char *argv[]) {
     struct addrinfo hints, *servinfo;
 
     memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC;    // don't care IPv4 or IPv6
+    hints.ai_family = AF_INET;    // don't care IPv4 or IPv6
     hints.ai_socktype = SOCK_DGRAM; // datagram socket
     hints.ai_flags = AI_PASSIVE;    // fill in IP
 
