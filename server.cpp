@@ -22,13 +22,6 @@ void *get_in_addr(struct sockaddr *addr) {
 }
 
 int main(int argc, char *argv[]) {
-    // TODO: replace command line arguments with prompts
-    if (argc != 2) {
-        fprintf(stderr, "usage: %s hostname\n", argv[0]);
-        exit(1);
-    }
-    char *host = argv[1];
-
     // prepare socket syscall
     struct addrinfo hints, *servinfo;
 
@@ -38,7 +31,7 @@ int main(int argc, char *argv[]) {
     hints.ai_flags = AI_PASSIVE;    // fill in IP
 
     int status;
-    if ((status = getaddrinfo(host, PORT, &hints, &servinfo)) != 0) {
+    if ((status = getaddrinfo(HOST, PORT, &hints, &servinfo)) != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
         exit(1);
     }
@@ -47,6 +40,12 @@ int main(int argc, char *argv[]) {
     // loop through all the results and bind to the first successful
     struct addrinfo *node;
     int sockfd;
+    for (node = servinfo; node != NULL; node = node->ai_next) {
+        char host_addr[INET6_ADDRSTRLEN];
+        inet_ntop(node->ai_family, get_in_addr(node->ai_addr), host_addr, sizeof host_addr);
+        printf("debug: host addr %s\n", host_addr);
+    }
+
     for (node = servinfo; node != NULL; node = node->ai_next) {
         // attempt socket syscall
         if ((sockfd = socket(node->ai_family, node->ai_socktype, node->ai_protocol)) == -1) {
