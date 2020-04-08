@@ -12,7 +12,7 @@
 #include <fstream>
 
 #define PORT "9898"
-#define MAX_PKT_SIZE 256 * 36  // 36 bytes
+#define MAX_PKT_SIZE 1024 * 9  // 9 kb
 
 using namespace std;
 

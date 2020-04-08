@@ -13,7 +13,7 @@
 
 #define HOST NULL   // NULL = localhost
 #define PORT "9898"
-#define MAX_BUF 258 * 36  // 36 bytes
+#define MAX_BUF 1024 * 9  // 9 kb
 
 using namespace std;
 
