@@ -9,7 +9,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 
-#define PORT "7000"
+#define PORT "9898"
 
 int main(int argc, char *argv[]) {
     // TODO: replace command line arguments with prompts

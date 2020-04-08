@@ -10,7 +10,7 @@
 #include <netdb.h>
 
 #define HOST NULL   // NULL = localhost
-#define PORT "7000"
+#define PORT "9898"
 #define MAX_BUF 100
 
 // get sockaddr, IPv4 or IPv6:
