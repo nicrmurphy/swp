@@ -15,7 +15,7 @@ int main(int argc, char *argv[]) {
     // TODO: replace command line arguments with prompts
     if (argc != 3) {
         fprintf(stderr, "usage: %s hostname message\n", argv[0]);
-        fprintf(stderr, "ex: %s localhost test\n", argv[0]);
+        fprintf(stderr, "ex: %s thing2 test\n", argv[0]);
         fprintf(stderr, "Sending \"exit\" to the server will close the server\n");
         exit(1);
     }
@@ -24,7 +24,7 @@ int main(int argc, char *argv[]) {
 
     struct addrinfo hints, *servinfo;
     memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_INET;
+    hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_DGRAM;
 
     int status;

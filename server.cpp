@@ -15,7 +15,7 @@
 
 // get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *addr) {
-	if (addr->sa_family == AF_INET) {
+	if (addr->sa_family == AF_UNSPEC) {
 		return &(((struct sockaddr_in*)addr)->sin_addr);
 	}
 	return &(((struct sockaddr_in6*)addr)->sin6_addr);
