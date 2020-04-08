@@ -22,6 +22,13 @@ void *get_in_addr(struct sockaddr *addr) {
 }
 
 int main(int argc, char *argv[]) {
+    // TODO: replace command line arguments with prompts
+    if (argc != 2) {
+        fprintf(stderr, "usage: %s hostname\n", argv[0]);
+        exit(1);
+    }
+    char *host = argv[1];
+
     // prepare socket syscall
     struct addrinfo hints, *servinfo;
 
@@ -31,7 +38,7 @@ int main(int argc, char *argv[]) {
     hints.ai_flags = AI_PASSIVE;    // fill in IP
 
     int status;
-    if ((status = getaddrinfo(HOST, PORT, &hints, &servinfo)) != 0) {
+    if ((status = getaddrinfo(host, PORT, &hints, &servinfo)) != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
         exit(1);
     }
