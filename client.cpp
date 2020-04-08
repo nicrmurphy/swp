@@ -12,9 +12,34 @@
 #include <fstream>
 
 #define PORT "9898"
-#define MAX_PKT_SIZE 1024 * 9  // 9 kb
+#define MAX_DATA_SIZE 1024 * 9  // 9 kb
+#define MAX_FRAME_SIZE 1024 * 9 + 10
 
 using namespace std;
+
+char checksum(char *frame, int count) {
+    u_long sum = 0;
+    while (count--) {
+        sum += *frame++;
+        if (sum & 0xFFFF0000) {
+            sum &= 0xFFFF;
+            sum++; 
+        }
+    }
+    return (sum & 0xFFFF);
+}
+
+int pack_data(char* frame, int seq_num, char* buff, int buff_size, bool end){
+    frame[0] = end ? 0x0 : 0x1;
+    uint32_t net_seq_num = htonl(seq_num);
+    uint32_t net_data_size = htonl(buff_size);
+    memcpy(frame + 1, &net_seq_num, 4);
+    memcpy(frame + 5, &net_data_size, 4);
+    memcpy(frame + 9, buff, buff_size);
+    frame[buff_size + 9] = checksum(frame, buff_size + (int) 9);
+
+    return buff_size + (int)10;
+}
 
 int main(int argc, char *argv[]) {
     // TODO: replace command line arguments with prompts
@@ -76,10 +101,13 @@ int main(int argc, char *argv[]) {
 
     // break up file data into packets and send packets
     int bytes_sent = 0, total = 0;
+    char frame[MAX_FRAME_SIZE];
+    int frame_size;
     while (total < data_len) {
-        int pkt_size = (int) data_len - total;
-        pkt_size = pkt_size > MAX_PKT_SIZE ? MAX_PKT_SIZE : pkt_size;
-        if ((bytes_sent = sendto(sockfd, data + total, pkt_size, 0, node->ai_addr, node->ai_addrlen)) == -1) {
+        int data_size = (int) data_len - total;
+        data_size = data_size > MAX_DATA_SIZE ? MAX_DATA_SIZE : data_size;
+        frame_size = pack_data(frame,0,data+total, data_size, false);
+        if ((bytes_sent = sendto(sockfd, frame, frame_size, 0, node->ai_addr, node->ai_addrlen)) == -1) {
             perror("sendto");
             exit(1);
         }
