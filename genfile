@@ -1,0 +1,23 @@
+#!/bin/sh
+
+# this script is a wrapper of the dd urandom command
+# randomly generates a binary file of requested size
+# example of a 12mb binary file: ./genfile 12 mb 12m
+
+if [ "$#" = 2 ] || [ "$#" = 3 ]; then
+  if [ "$2" = "b" ]; then bs=1
+  elif [ "$2" = "kb" ]; then bs=1024
+  elif [ "$2" = "mb" ]; then bs=1048576
+  elif [ "$2" = "gb" ]; then bs=1073741824
+  else echo "invalid argument \"$2\""
+  fi
+  of=src
+  if [ "$#" = 3 ]; then of=$3
+  fi
+  dd if=/dev/urandom of=$of bs=$bs count=$1
+else
+  echo "usage: $0 size type [optional: dest]"
+  echo "  size: size of file, measured in \"type\""
+  echo "  type: b, kb, mb, gb"
+  echo "  dest [optional]: path to output file"
+fi

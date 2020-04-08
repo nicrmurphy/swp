@@ -8,10 +8,14 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <iostream>
+#include <fstream>
 
 #define HOST NULL   // NULL = localhost
 #define PORT "9898"
-#define MAX_BUF 100
+#define MAX_BUF 258 * 36  // 36 bytes
+
+using namespace std;
 
 // get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *addr) {
@@ -48,7 +52,7 @@ int main(int argc, char *argv[]) {
         }
 
         // if successful, bind socket
-        if (bind(sockfd, node->ai_addr, node->ai_addrlen) == -1) {
+        if (::bind(sockfd, node->ai_addr, node->ai_addrlen) == -1) {
             close(sockfd);
             perror("bind");
             continue;
@@ -71,23 +75,25 @@ int main(int argc, char *argv[]) {
     socklen_t addr_len = sizeof client;
     char buf[MAX_BUF];
     int bytes_recv;
+    ofstream dst ("dst");
     while (1) {
         // sleep until receives next packet
-        if ((bytes_recv = recvfrom(sockfd, buf, MAX_BUF - 1, 0, (struct sockaddr *) &client, &addr_len)) == -1) {
+        if ((bytes_recv = recvfrom(sockfd, buf, MAX_BUF, 0, (struct sockaddr *) &client, &addr_len)) == -1) {
             perror("recvfrom");
             exit(1);
         }
 
         char client_addr[INET6_ADDRSTRLEN];
         inet_ntop(client.ss_family, get_in_addr((struct sockaddr *) &client), client_addr, sizeof client_addr);
-        printf("received packet from %s\n", client_addr);
+        cout << "received " << bytes_recv << " bytes from " << client_addr << '\n';
 
-        printf("packet is %d bytes long\n", bytes_recv);
-        buf[bytes_recv] = '\0';
-        printf("packet contents: \"%s\"\n", buf);
-
-        if (strcmp(buf, "exit") == 0) break;
+        // write packet contents to file
+        if (dst.is_open()) {
+            dst.write(buf, bytes_recv);
+            dst.seekp(0, ios::end);
+        }
     }
+    dst.close();
     close(sockfd);
     return 0;
 }

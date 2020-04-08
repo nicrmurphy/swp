@@ -10,4 +10,4 @@ client:
 	$(CC) $(CFLAGS) client.cpp -o client
 
 clean:
-	rm -rf server client *.dSYM
+	rm -rf server client src dst *.dSYM

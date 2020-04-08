@@ -3,3 +3,5 @@
 *.dSYM
 client
 server
+src
+dst
