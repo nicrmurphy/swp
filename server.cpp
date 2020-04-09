@@ -13,7 +13,9 @@
 
 #define HOST NULL   // NULL = localhost
 #define PORT "9898"
-#define MAX_BUF 1024 * 9  // 9 kb
+#define MAX_DATA_SIZE 1023 * 9 // 9 kb
+#define MAX_FRAME_SIZE 1024 * 9 + 10 // to hold extra header data
+
 
 using namespace std;
 
@@ -23,6 +25,34 @@ void *get_in_addr(struct sockaddr *addr) {
 		return &(((struct sockaddr_in*)addr)->sin_addr);
 	}
 	return &(((struct sockaddr_in6*)addr)->sin6_addr);
+}
+
+char checksum(char *frame, int count) {
+    u_long sum = 0;
+    while (count--) {
+        sum += *frame++;
+        if (sum & 0xFFFF0000) {
+            sum &= 0xFFFF;
+            sum++; 
+        }
+    }
+    return (sum & 0xFFFF);
+}
+
+bool unpack_data(char* frame, int* seq_num, char* buff, int* buff_size, bool* end){
+    *end = frame[0] == 0x0 ? true : false;
+
+    uint32_t net_seq_num;
+    memcpy(&net_seq_num, frame + 1, 4);
+    *seq_num = ntohl(net_seq_num);
+
+    uint32_t net_data_size;
+    memcpy(&net_data_size, frame + 5, 4);
+    *buff_size = ntohl(net_data_size);
+
+    memcpy(buff, frame + 9, *buff_size);
+
+    return frame[*buff_size + 9] != checksum(frame, *buff_size + (int) 9);
 }
 
 int main(int argc, char *argv[]) {
@@ -73,24 +103,38 @@ int main(int argc, char *argv[]) {
 
     sockaddr_storage client;
     socklen_t addr_len = sizeof client;
-    char buf[MAX_BUF];
+    char frame[MAX_FRAME_SIZE];
+    char data_buff[MAX_DATA_SIZE];
     int bytes_recv;
+    int seq_num;
+    int frame_error;
+    int databuff_size;
+    bool end;
     ofstream dst ("dst");
-    while (1) {
+    bool file_end = false;
+    while (!file_end) {
         // sleep until receives next packet
-        if ((bytes_recv = recvfrom(sockfd, buf, MAX_BUF, 0, (struct sockaddr *) &client, &addr_len)) == -1) {
+        if ((bytes_recv = recvfrom(sockfd, frame, MAX_FRAME_SIZE, 0, (struct sockaddr *) &client, &addr_len)) == -1) {
             perror("recvfrom");
             exit(1);
         }
-
+        frame_error = unpack_data(frame, &seq_num, data_buff, &databuff_size, &end);
+        if(frame_error){
+            
+        }
         char client_addr[INET6_ADDRSTRLEN];
         inet_ntop(client.ss_family, get_in_addr((struct sockaddr *) &client), client_addr, sizeof client_addr);
         cout << "received " << bytes_recv << " bytes from " << client_addr << '\n';
 
         // write packet contents to file
         if (dst.is_open()) {
-            dst.write(buf, bytes_recv);
+            dst.write(data_buff, databuff_size);
             dst.seekp(0, ios::end);
+        }
+
+        if(end){
+            cout << "Received File. Closing" << endl;
+            file_end = true;
         }
     }
     dst.close();
