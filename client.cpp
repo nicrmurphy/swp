@@ -130,6 +130,7 @@ int main(int argc, char *argv[]) {
         total += bytes_sent;
         cout << "sent " << bytes_sent << " (" << total << "/" << data_len << ") bytes to " << host << "\n";
     }
+    cout << "sent " << total << " bytes to " << host << "\n";
     src.close();
 
     cout << endl;

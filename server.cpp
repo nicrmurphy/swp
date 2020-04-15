@@ -10,12 +10,13 @@
 #include <netdb.h>
 #include <iostream>
 #include <fstream>
+#include <thread>
 
 #define HOST NULL   // NULL = localhost
 #define PORT "9898"
 #define MAX_DATA_SIZE 1023 * 9 // 9 kb
 #define MAX_FRAME_SIZE 1024 * 9 + 10 // to hold extra header data
-
+#define MB_512 536870912
 
 using namespace std;
 
@@ -25,6 +26,12 @@ void *get_in_addr(struct sockaddr *addr) {
 		return &(((struct sockaddr_in*)addr)->sin_addr);
 	}
 	return &(((struct sockaddr_in6*)addr)->sin6_addr);
+}
+
+// TODO: implement
+int send_ack(int seq_num) {
+    // cout << "ack " << seq_num << " sent\n";
+    return 0;
 }
 
 char checksum(char *frame, int count) {
@@ -112,6 +119,9 @@ int main(int argc, char *argv[]) {
     bool end;
     ofstream dst ("dst");
     bool file_end = false;
+    int total_bytes_recv = 0;
+    size_t data_filled = 0;
+    char *data = new char[MB_512];   // allocate 512 mb
     while (!file_end) {
         // sleep until receives next packet
         if ((bytes_recv = recvfrom(sockfd, frame, MAX_FRAME_SIZE, 0, (struct sockaddr *) &client, &addr_len)) == -1) {
@@ -122,21 +132,38 @@ int main(int argc, char *argv[]) {
         if(frame_error){
             
         }
-        char client_addr[INET6_ADDRSTRLEN];
-        inet_ntop(client.ss_family, get_in_addr((struct sockaddr *) &client), client_addr, sizeof client_addr);
-        cout << "received " << bytes_recv << " bytes from " << client_addr << '\n';
+        total_bytes_recv += bytes_recv;
+        cout << "received " << bytes_recv << " bytes (total: " << total_bytes_recv << ")\n";     // debug
 
-        // write packet contents to file
-        if (dst.is_open()) {
-            dst.write(data_buff, databuff_size);
-            dst.seekp(0, ios::end);
+        // send ack
+        thread (send_ack, seq_num).detach();    // TODO: may need to free memory
+
+        if (data_filled + databuff_size > MB_512) {
+            // TODO: write to file on new thread instead of killing the program
+            fprintf(stderr, "Buffer not big enough");
+            exit(1);
         }
+
+        memcpy(data + data_filled, data_buff, databuff_size);
+        data_filled += databuff_size;
 
         if(end){
             cout << "Received File. Closing" << endl;
             file_end = true;
         }
     }
+
+    // write packet contents to file
+    if (dst.is_open()) {
+        dst.write(data, data_filled);
+        // dst.seekp(0, ios::end);
+    }
+    delete[] data;
+
+    char client_addr[INET6_ADDRSTRLEN];
+    inet_ntop(client.ss_family, get_in_addr((struct sockaddr *) &client), client_addr, sizeof client_addr);
+    cout << "received " << total_bytes_recv << " bytes from " << client_addr << '\n';
+
     dst.close();
     close(sockfd);
     return 0;
