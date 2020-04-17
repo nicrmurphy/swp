@@ -96,6 +96,41 @@ void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, in
     //END USER INPUT
 }
 
+// LAR -> last ack received
+// LFR -> last frame received
+// LFS -> last frame sent
+// VAR -> expected frame
+// LW -> left wall
+// RW -> right wall
+// SWS -> sender window size
+// RWS -> receiver window wise
+
+void gbn(){
+    //Receive Packets
+    //If packet is expected packet
+        //Accept packet
+        //send ack for Sequence number
+        //Seq num ++
+        //If seq num > Smax
+            //seq num = 0 or seq min
+    //If packet is not expected packet AND seq num > 0
+        //send ack for previously received packet
+    //Else
+        //If lastAck = null
+            //Dont send anything, waiting for the first packet
+
+}
+
+void sr(){
+    //Receive packet n
+    // if n is in [sb, sb + windowsize -1]
+        // send ack(n)
+        //if n is not the smallest unreceived 
+            // buffer n
+    //else
+        //deliver n and following in order buffered until next unreceived packet
+}
+
 int main(int argc, char *argv[]) {
     string protocol;
     int packetSize;
@@ -103,7 +138,7 @@ int main(int argc, char *argv[]) {
     int sizeOfWindow;
     int rangeOfSequence;
     
-    promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence);
+    //promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence);
     
     // prepare socket syscall
     struct addrinfo hints, *servinfo;

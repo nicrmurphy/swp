@@ -10,6 +10,8 @@
 #include <netdb.h>
 #include <iostream>
 #include <fstream>
+#include <chrono>
+#include <ctime>
 
 #define PORT "9898"
 #define MAX_DATA_SIZE 1024 * 9  // 9 kb
@@ -74,6 +76,77 @@ void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, in
     //END USER INPUT
 }
 
+// LAR -> last ack received
+// LFR -> last frame received
+// LFS -> last frame sent
+// VAR -> expected frame
+// LW -> left wall
+// RW -> right wall
+// SWS -> sender window size
+// RWS -> receiver window wise
+
+int send_packet(const int seq_num) {
+
+    return 0;
+}
+
+int recv_packet() {
+
+    return 0;
+}
+
+int gbn() {
+    int total_packets = 15;
+    size_t window_size = 10;
+    char window[] = new char[window_size];
+    // time_t timers[] = new time_t[total_packets];
+    int lw = 0;
+    int rw = window_size;
+    int lar;    // last ack received
+    bool done = false;
+    
+    while (!done) {
+        // send packets in window
+        for (int i = 0; i < window_size; i++) {
+            send_packet(i);
+            // timers[i] = chrono::system_clock::now();
+        }
+
+        // if something is able to be received (poll? , select?)
+            // received ack(n)
+            ar = recv_packet();
+            // check if n is smallest un-acked packet
+           if (lar >= lw) {
+                lw = lar + 1;
+                rw = lw + window_size;
+            }
+
+        // set done = true when received all acks (packet termination flag)
+        if (lar == total_packets - 1) done = true;
+    }
+    delete[] window; 
+    // delete[] timers; 
+
+    return 0;
+}
+
+int sr(){
+    // send packet Sn
+
+    // start timeout timer for Sn
+
+    //if timeout,
+        //Send packet again,
+        //restart timeout timer
+
+    // if get ack sb 
+        // mark packet as received 
+        // if the seqence number is the smallest unacked packet
+            //shift sb to the next unacked packet
+
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
     string protocol;
     int packetSize;
@@ -81,7 +154,7 @@ int main(int argc, char *argv[]) {
     int sizeOfWindow;
     int rangeOfSequence;
     
-    promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence);
+    //  promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence);
 
     // TODO: replace command line arguments with prompts
     if (argc != 3) {
