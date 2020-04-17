@@ -41,7 +41,48 @@ int pack_data(char* frame, int seq_num, char* buff, int buff_size, bool end){
     return buff_size + (int)10;
 }
 
+void generateErrors(){}
+void promptErrors(){}
+
+void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, int* sizeOfWindow, int* rangeOfSequence){
+    //START USER INPUT
+    
+    cout << "Type of protocol (GBN or SR): ";
+    cin >> *protocol;
+    cout << "Packet Size (kB): ";
+    cin >> *packetSize;
+    cout << "Timeout interval (0 for ping calculated): ";
+    cin >> *timeoutInterval;
+    cout << "Size of sliding window: ";
+    cin >> *sizeOfWindow;
+    cout << "Range of sequence numbers: ";
+    cin >> *rangeOfSequence;
+
+    string userInput;
+    cout << "Situational Errors" << endl;
+    cout << "------------------" << endl;
+    cout << "1. None" << endl;
+    cout << "2. Randomly Generated" << endl;
+    cout << "3. User-Specified" << endl;
+    cout << "> ";
+    cin >> userInput;
+    if(userInput.compare("2") == 0){
+        generateErrors();
+    } else if(userInput.compare("3") == 0){
+        promptErrors();
+    }
+    //END USER INPUT
+}
+
 int main(int argc, char *argv[]) {
+    string protocol;
+    int packetSize;
+    int timeoutInterval;
+    int sizeOfWindow;
+    int rangeOfSequence;
+    
+    promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence);
+
     // TODO: replace command line arguments with prompts
     if (argc != 3) {
         fprintf(stderr, "usage: %s hostname filepath\n", argv[0]);
@@ -50,6 +91,7 @@ int main(int argc, char *argv[]) {
     }
     char *host = argv[1];
     char *filepath = argv[2];
+
 
     // read in file 
     char data[MAX_DATA_SIZE];
