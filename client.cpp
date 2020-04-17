@@ -78,6 +78,7 @@ int main()
         promptErrors();
     }
     //END USER INPUT
+    
     // TODO: replace command line arguments with prompts
     if (argc != 3) {
         fprintf(stderr, "usage: %s hostname filepath\n", argv[0]);

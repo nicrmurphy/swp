@@ -63,6 +63,39 @@ bool unpack_data(char* frame, int* seq_num, char* buff, int* buff_size, bool* en
 }
 
 int main(int argc, char *argv[]) {
+    string protocol;
+    int packetSize;
+    int timeoutInterval;
+    int sizeOfWindow;
+    int rangeOfSequence;
+    //START USER INPUT
+    
+    cout << "Type of protocol (GBN or SR): ";
+    cin >> protocol;
+    cout << "Packet Size (kB): ";
+    cin >> packetSize;
+    cout << "Timeout interval (0 for ping calculated): ";
+    cin >> timeoutInterval;
+    cout << "Size of sliding window: ";
+    cin >> sizeOfWindow;
+    cout << "Range of sequence numbers: ";
+    cin >> rangeOfSequence;
+
+    string userInput;
+    cout << "Situational Errors" << endl;
+    cout << "------------------" << endl;
+    cout << "1. None" << endl;
+    cout << "2. Randomly Generated" << endl;
+    cout << "3. User-Specified" << endl;
+    cout << "> ";
+    cin >> userInput;
+    if(userInput.compare("2") == 0){
+        generateErrors();
+    } else if(userInput.compare("3") == 0){
+        promptErrors();
+    }
+    //END USER INPUT
+    
     // prepare socket syscall
     struct addrinfo hints, *servinfo;
 
