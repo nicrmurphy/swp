@@ -62,24 +62,22 @@ bool unpack_data(char* frame, int* seq_num, char* buff, int* buff_size, bool* en
     return frame[*buff_size + 9] != checksum(frame, *buff_size + (int) 9);
 }
 
-int main(int argc, char *argv[]) {
-    string protocol;
-    int packetSize;
-    int timeoutInterval;
-    int sizeOfWindow;
-    int rangeOfSequence;
+void generateErrors(){}
+void promptErrors(){}
+
+void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, int* sizeOfWindow, int* rangeOfSequence){
     //START USER INPUT
     
     cout << "Type of protocol (GBN or SR): ";
-    cin >> protocol;
+    cin >> *protocol;
     cout << "Packet Size (kB): ";
-    cin >> packetSize;
+    cin >> *packetSize;
     cout << "Timeout interval (0 for ping calculated): ";
-    cin >> timeoutInterval;
+    cin >> *timeoutInterval;
     cout << "Size of sliding window: ";
-    cin >> sizeOfWindow;
+    cin >> *sizeOfWindow;
     cout << "Range of sequence numbers: ";
-    cin >> rangeOfSequence;
+    cin >> *rangeOfSequence;
 
     string userInput;
     cout << "Situational Errors" << endl;
@@ -94,7 +92,18 @@ int main(int argc, char *argv[]) {
     } else if(userInput.compare("3") == 0){
         promptErrors();
     }
+
     //END USER INPUT
+}
+
+int main(int argc, char *argv[]) {
+    string protocol;
+    int packetSize;
+    int timeoutInterval;
+    int sizeOfWindow;
+    int rangeOfSequence;
+    
+    promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence);
     
     // prepare socket syscall
     struct addrinfo hints, *servinfo;
