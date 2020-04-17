@@ -1,3 +1,9 @@
 *.pdf
 .vscode
 a.out
+*.o
+*.dSYM
+client
+server
+src
+dst

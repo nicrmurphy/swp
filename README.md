@@ -3,9 +3,9 @@ Implementation of Sliding Window Protocols
 
 ## TODO
 - [ ] Reliable communication between two processes, e.g., A and B, with error-handling using the Internet Checksum or the CRC checksum algorithm
-  - [ ] Datagram socket communication
-    - [ ] Simple communication (strings)
-    - [ ] FTP for any (one) client to any (one) server
+  - [x] Datagram socket communication
+    - [x] Simple communication (strings)
+    - [x] FTP for any (one) client to any (one) server
     - [ ] _Optional: FTP for multiple clients to multiple servers_
   - [ ] Error Detection
   - [ ] Dynamic packet size

@@ -1,38 +1,44 @@
-// Write CPP code here
-#include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
+#include <errno.h>
 #include <string.h>
+#include <sys/types.h>
 #include <sys/socket.h>
-#include <stdio.h>      /* for printf() and fprintf() */
-#include <sys/types.h>  /* for Socket data types */
-#include <sys/socket.h> /* for socket(), connect(), send(), and recv() */
-#include <netinet/in.h> /* for IP Socket data types */
-#include <arpa/inet.h>  /* for sockaddr_in and inet_addr() */
-#include <stdlib.h>     /* for atoi() */
-#include <string.h>     /* for memset() */
-#include <unistd.h>     /* for close() */
-#include <vector>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
 #include <iostream>
-#define MAX 80
-#define PORT 9105
-#define SA struct sockaddr
+#include <fstream>
+
+#define PORT "9898"
+#define MAX_DATA_SIZE 1024 * 9  // 9 kb
+#define MAX_FRAME_SIZE 1024 * 9 + 10 // to hold extra header data
 
 using namespace std;
 
-void func(int sockfd)
-{
-    string test = "Test String";
-    //Create char array buffer
-    char *testBuff = new char[4096];
-    int testLength = test.length();
-    strcpy(testBuff, test.c_str());
-    // send length
-    send(sockfd, &testLength, sizeof(testLength), 0);
-    // send message
-    send(sockfd, testBuff, testLength, 0);
+char checksum(char *frame, int count) {
+    u_long sum = 0;
+    while (count--) {
+        sum += *frame++;
+        if (sum & 0xFFFF0000) {
+            sum &= 0xFFFF;
+            sum++; 
+        }
+    }
+    return (sum & 0xFFFF);
+}
 
-    cout << "Sent: " << test << endl;
+int pack_data(char* frame, int seq_num, char* buff, int buff_size, bool end){
+    frame[0] = end ? 0x0 : 0x1;
+    uint32_t net_seq_num = htonl(seq_num);
+    uint32_t net_data_size = htonl(buff_size);
+    memcpy(frame + 1, &net_seq_num, 4);
+    memcpy(frame + 5, &net_data_size, 4);
+    memcpy(frame + 9, buff, buff_size);
+    frame[buff_size + 9] = checksum(frame, buff_size + (int) 9);
+
+    return buff_size + (int)10;
 }
 
 void generateErrors(){}
@@ -71,70 +77,100 @@ int main()
     } else if(userInput.compare("3") == 0){
         promptErrors();
     }
-
     //END USER INPUT
-
-    int sockfd, connfd;
-    struct sockaddr_in servaddr, cli;
-
-    // socket create and verification
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd == -1)
-    {
-        printf("socket creation failed...\n");
-        exit(0);
+    // TODO: replace command line arguments with prompts
+    if (argc != 3) {
+        fprintf(stderr, "usage: %s hostname filepath\n", argv[0]);
+        fprintf(stderr, "ex: %s thing2 src\n", argv[0]);
+        exit(1);
     }
-    else
-        printf("Socket successfully created..\n");
-    bzero(&servaddr, sizeof(servaddr));
+    char *host = argv[1];
+    char *filepath = argv[2];
 
-    cout << "Enter a number to specify the server want to connect to: " << endl;
-    cout << "0 - thing0" << endl;
-    cout << "1 - thing1" << endl;
-    cout << "2 - thing2" << endl;
-    cout << "3 - thing3" << endl;
-    cout << "4 - localhost" << endl;
 
-    string choice;
-    string ip;
-    cin >> choice;
-    if (choice == "0")
-    {
-        ip = "10.35.195.46";
+    // read in file 
+    char data[MAX_DATA_SIZE];
+    long data_len;
+    ifstream src(filepath, ios::in | ios::binary | ios::ate);
+    if (src.is_open()) {
+        data_len = src.tellg();     // fill data_len with size of file in bytes
+        //data = new char[data_len];  // allocate memory for data memory block
+        src.seekg(0, ios::beg);     // change stream pointer location to beginning of file
+       // src.read(data, data_len);   // read in file contents to data
+       // src.close();                // close iostream
+    } else {
+        fprintf(stderr, "failed to read file %s\n", filepath);
+        exit(1);
     }
-    else if (choice == "1")
-    {
-        ip = "10.35.195.47";
-    }
-    else if (choice == "2")
-    {
-        ip = "10.35.195.48";
-    }
-    else if (choice == "3")
-    {
-        ip = "10.35.195.49";
-    }
-    else if (choice == "4")
-    {
-        ip = "127.0.0.1";
-    }
-    // assign IP, PORT
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_addr.s_addr = inet_addr(ip.c_str());
-    servaddr.sin_port = htons(PORT);
 
-    // connect the client socket to server socket
-    if (connect(sockfd, (SA *)&servaddr, sizeof(servaddr)) != 0)
-    {
-        printf("connection with the server failed...\n");
-        exit(0);
+    // determine the number of packets required for the transfer
+    int numBlocks = data_len / (MAX_DATA_SIZE);
+    // determine size of last packet
+    int leftover = data_len % (MAX_DATA_SIZE);
+    if(leftover){
+        numBlocks++;
     }
-    else
-        printf("connected to the server..\n");
+    // prepare socket
+    struct addrinfo hints, *servinfo;
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_DGRAM;
 
-    // function for chat
-    func(sockfd);
+    // fill servinfo with addrinfo
+    int status;
+    if ((status = getaddrinfo(host, PORT, &hints, &servinfo)) != 0) {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
+        exit(1);
+    }
+    // servinfo now points to a linked list of 1 or more struct addrinfos
 
-    // close the socket
+    // loop through all the results and make a socket
+    struct addrinfo *node;
+    int sockfd;
+    for (node = servinfo; node != NULL; node = node->ai_next) {
+        // attempt socket syscall
+        if ((sockfd = socket(node->ai_family, node->ai_socktype, node->ai_protocol)) == -1) {
+            perror("socket");
+            continue;
+        }
+        break;
+    }
+    freeaddrinfo(servinfo); // free the linked list
+
+    // if successful, node now points to the info of the successfully created socket
+    if (node == NULL) {
+        fprintf(stderr, "failed to create socket\n");
+        exit(1);
+    }
+
+    // break up file data into packets and send packets
+    int bytes_sent = 0, total = 0;
+    char frame[MAX_FRAME_SIZE];
+    int frame_size;
+    int end = false;
+    // read each section of data from the file, package, and send them 
+    for (int i = 0; i < numBlocks; i++)
+    {
+        
+        int data_size = MAX_DATA_SIZE;
+        if(i == numBlocks - 1){
+            data_size = leftover;
+            end = true;
+        } 
+        // read the data from the file. This should probably later be done in larger chunks
+        src.read(data,data_size);
+        frame_size = pack_data(frame,0,data, data_size, end);
+        if ((bytes_sent = sendto(sockfd, frame, frame_size, 0, node->ai_addr, node->ai_addrlen)) == -1) {
+            perror("sendto");
+            exit(1);
+        }
+        total += bytes_sent;
+        cout << "sent " << bytes_sent << " (" << total << "/" << data_len << ") bytes to " << host << "\n";
+    }
+    cout << "sent " << total << " bytes to " << host << "\n";
+    src.close();
+
+    cout << endl;
     close(sockfd);
+    return 0;
 }
