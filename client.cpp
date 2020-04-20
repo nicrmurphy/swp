@@ -12,6 +12,7 @@
 #include <fstream>
 #include <chrono>
 #include <ctime>
+#include <sstream>
 
 #define PORT "9898"
 #define MAX_DATA_SIZE 1024 * 9  // 9 kb
@@ -46,19 +47,47 @@ int pack_data(char* frame, int seq_num, char* buff, int buff_size, bool end){
 void generateErrors(){}
 void promptErrors(){}
 
-void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, int* sizeOfWindow, int* rangeOfSequence){
+void promptUserInput(string* hostIP, string* protocol, int* packetSize, int* timeoutInterval, int* sizeOfWindow, int* rangeOfSequence){
     //START USER INPUT
     
+    string input;
+
+    cout << "Host IP";
+    getline(cin, input);
+    if(!input.empty()){
+        stringstream stream(input);
+        stream >> *hostIP;
+    }
     cout << "Type of protocol (GBN or SR): ";
-    cin >> *protocol;
-    cout << "Packet Size (kB): ";
-    cin >> *packetSize;
+    getline(cin, input);
+    if(!input.empty()){
+        stringstream stream(input);
+        stream >> *protocol;
+    }
+    cout << "Packet Size (kB) (32kB default): ";
+    getline(cin, input);
+    if(!input.empty()){
+        istringstream stream(input);
+        stream >> *packetSize;
+    }
     cout << "Timeout interval (0 for ping calculated): ";
-    cin >> *timeoutInterval;
-    cout << "Size of sliding window: ";
-    cin >> *sizeOfWindow;
-    cout << "Range of sequence numbers: ";
-    cin >> *rangeOfSequence;
+    getline(cin, input);
+    if(!input.empty()){
+        istringstream stream(input);
+        stream >> *timeoutInterval;
+    }
+    cout << "Size of sliding window (5 default): ";
+    getline(cin, input);
+    if(!input.empty()){
+        istringstream stream(input);
+        stream >> *sizeOfWindow;
+    }
+    cout << "Range of sequence numbers (64 default): ";
+    getline(cin, input);
+    if(!input.empty()){
+        istringstream stream(input);
+        stream >> *rangeOfSequence;
+    }
 
     string userInput;
     cout << "Situational Errors" << endl;
@@ -148,13 +177,14 @@ int sr(){
 }
 
 int main(int argc, char *argv[]) {
+    string hostIP;
     string protocol;
-    int packetSize;
+    int packetSize = 32000;
     int timeoutInterval;
-    int sizeOfWindow;
-    int rangeOfSequence;
+    int sizeOfWindow = 5;
+    int rangeOfSequence = 64;
     
-    //  promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence);
+    //  promptUserInput(&hostIP, &protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence);
 
     // TODO: replace command line arguments with prompts
     if (argc != 3) {

@@ -31,12 +31,12 @@ Implementation of Sliding Window Protocols
 
 - [ ] GUI
   - [ ] Server
-    - [ ] User input
-      - [ ] Select Protocol
-      - [ ] Packet Size
-      - [ ] Timeout Interval (user-specified or ping-calculated)
-      - [ ] Window Size
-      - [ ] Range of Sequence Numbers
+    - [x] User input
+      - [x] Select Protocol
+      - [x] Packet Size
+      - [x] Timeout Interval (user-specified or ping-calculated)
+      - [x] Window Size
+      - [x] Range of Sequence Numbers
       - [ ] Situational Errors (none, randomly generated, or user-specified, i.e., drop packets 2, 4, 5, lose acks 11, etc.)
     - [ ] Console output
       - [ ] Packets (sequence number) received
@@ -46,12 +46,12 @@ Implementation of Sliding Window Protocols
       - [ ] Frames arriving out of order should be re-sequenced before assembly
   - [ ] Client
     - [ ] User input
-      - [ ] Server Host
-      - [ ] Select Protocol
-      - [ ] Packet Size
-      - [ ] Timeout Interval (user-specified or ping-calculated)
-      - [ ] Window Size
-      - [ ] Range of Sequence Numbers
+      - [x] Server Host
+      - [x] Select Protocol
+      - [x] Packet Size
+      - [x] Timeout Interval (user-specified or ping-calculated)
+      - [x] Window Size
+      - [x] Range of Sequence Numbers
       - [ ] Situational Errors (none, randomly generated, or user-specified, i.e., drop packets 2, 4, 5, lose acks 11, etc.)
     - [ ] Console output
       - [ ] Packet sequence number of packet sent

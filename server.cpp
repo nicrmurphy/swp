@@ -68,16 +68,38 @@ void promptErrors(){}
 void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, int* sizeOfWindow, int* rangeOfSequence){
     //START USER INPUT
     
+    string input
+
     cout << "Type of protocol (GBN or SR): ";
-    cin >> *protocol;
-    cout << "Packet Size (kB): ";
-    cin >> *packetSize;
+    getline(cin, input);
+    if(!input.empty()){
+        stringstream stream(input);
+        stream >> *protocol;
+    }
+    cout << "Packet Size (kB) (32kB default): ";
+    getline(cin, input);
+    if(!input.empty()){
+        istringstream stream(input);
+        stream >> *packetSize;
+    }
     cout << "Timeout interval (0 for ping calculated): ";
-    cin >> *timeoutInterval;
-    cout << "Size of sliding window: ";
-    cin >> *sizeOfWindow;
-    cout << "Range of sequence numbers: ";
-    cin >> *rangeOfSequence;
+    getline(cin, input);
+    if(!input.empty()){
+        istringstream stream(input);
+        stream >> *timeoutInterval;
+    }
+    cout << "Size of sliding window (5 default): ";
+    getline(cin, input);
+    if(!input.empty()){
+        istringstream stream(input);
+        stream >> *sizeOfWindow;
+    }
+    cout << "Range of sequence numbers (64 default): ";
+    getline(cin, input);
+    if(!input.empty()){
+        istringstream stream(input);
+        stream >> *rangeOfSequence;
+    }
 
     string userInput;
     cout << "Situational Errors" << endl;
@@ -133,10 +155,10 @@ void sr(){
 
 int main(int argc, char *argv[]) {
     string protocol;
-    int packetSize;
+    int packetSize = 32000;
     int timeoutInterval;
-    int sizeOfWindow;
-    int rangeOfSequence;
+    int sizeOfWindow = 5;
+    int rangeOfSequence = 64;
     
     //promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence);
     
