@@ -131,6 +131,48 @@ int gbn() {
 }
 
 int sr(){
+     int total_packets = 15;
+    size_t window_size = 10;
+    char window[] = new char[window_size];
+    // time_t timers[] = new time_t[total_packets];
+    bool acked[window_size];
+    int lw = 0;
+    int rw = window_size;
+    int lar;    // last ack received
+    bool done = false;
+    
+    while (!done) {
+        // send packets in window
+        for (int i = 0; i < window_size; i++) {
+            if(acked[i] == false){
+                send_packet(i);
+            }
+            // timers[i] = chrono::system_clock::now();
+        }
+
+        // if something is able to be received (poll? , select?)
+            // received ack(n)
+            ar = recv_packet();
+            acked[ar] = true;
+            // check if n is smallest un-acked packet
+           for (size_t i = 0; i < window_size; i++)
+           {
+               //stop shifting at the first unacked window
+               if(acked[i] == false){
+                   break;
+               }
+               //shift window right
+               lw++;
+                rw = lw + window_size;
+           }
+        // set done = true when received all acks (packet termination flag)
+        if (lar == total_packets - 1) done = true;
+    }
+    delete[] window; 
+    // delete[] timers; 
+
+    return 0;
+    
     // send packet Sn
 
     // start timeout timer for Sn
