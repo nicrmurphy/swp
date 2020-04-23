@@ -328,10 +328,12 @@ int main(int argc, char *argv[]) {
     {
         int seq_num = i % 256;      // TODO: implement sequence numbers
         int data_size = MAX_DATA_SIZE;
-        if(i == numBlocks - 1){
-            data_size = leftover;
+        if (i == numBlocks - 1) {
+            if (leftover) {
+                data_size = leftover;
+            }
             end = true;
-        } 
+        }
         // read the data from the file. This should probably later be done in larger chunks
         src.read(data,data_size);
         bytes_sent = send_packet(servinfo, frame, seq_num, data, data_size, end);
