@@ -18,11 +18,11 @@ Implementation of Sliding Window Protocols
 
 - [ ] Helpers
   - [ ] Checksum
-  - [ ] Create frame
-  - [ ] Create ack
+  - [x] Create frame
+  - [x] Create ack
     - [ ] ~~Create nak~~
-  - [ ] Read frame
-  - [ ] Read ack
+  - [x] Read frame
+  - [x] Read ack
 
 - [ ] Sliding Window Protocols
   - [ ] ~~Stop and Wait Protocol?~~
