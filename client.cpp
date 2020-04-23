@@ -15,7 +15,7 @@
 #include <thread>
 
 #define PORT "9898"
-#define MAX_DATA_SIZE 1024 * 8  // 9 kb
+#define MAX_DATA_SIZE 1024 * 8
 #define MAX_FRAME_SIZE 1024 * 8 + 10 // to hold extra header data
 
 using namespace std;
@@ -316,25 +316,13 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "failed to create socket\n");
         exit(1);
     }
-
-    // /* Fill client address data structure */
-    // struct sockaddr_in client_addr;
-    // client_addr.sin_family = AF_INET;
-    // client_addr.sin_addr.s_addr = INADDR_ANY; 
-    // client_addr.sin_port = htons(0);
-    // // bind socket
-    // if (::bind(sockfd, (struct sockaddr *) &client_addr, sizeof(client_addr)) < 0) { 
-    //     perror("bind");
-    //     exit(1);
-    // }
-
-
     thread recv_thread(recv_ack, node, numBlocks);
 
     // break up file data into packets and send packets
     int bytes_sent = 0, total = 0;
     char frame[MAX_FRAME_SIZE];
     int end = false;
+    int num_packets_sent = 0;
     // read each section of data from the file, package, and send them 
     for (int i = 0; i < numBlocks; i++)
     {
@@ -348,14 +336,15 @@ int main(int argc, char *argv[]) {
         src.read(data,data_size);
         bytes_sent = send_packet(servinfo, frame, seq_num, data, data_size, end);
         total += bytes_sent;
+        num_packets_sent++;
         cout << "sent packet " << seq_num << "; " << bytes_sent << " (total: " << total << ") bytes to " << host << "\n";
     }
-    cout << "sent " << total << " bytes to " << host << "\n";
+    cout << "sent " << total << " bytes in " << num_packets_sent << " packets to " << host << "\n";
     src.close();
 
     cout << endl;
     cout << "main thread complete\n";
-    recv_thread.join();     // TODO: eventually change to detach after gbn and sr are implemented 
+    recv_thread.detach();
     // close(sockfd);
     return 0;
 }

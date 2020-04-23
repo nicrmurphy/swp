@@ -15,8 +15,8 @@
 
 #define HOST NULL   // NULL = localhost
 #define PORT "9898"
-#define MAX_DATA_SIZE 1023 * 9 // 9 kb
-#define MAX_FRAME_SIZE 1024 * 9 + 10 // to hold extra header data
+#define MAX_DATA_SIZE 1024 * 8
+#define MAX_FRAME_SIZE 1024 * 8 + 10 // to hold extra header data
 #define MB_512 536870912
 
 using namespace std;
@@ -197,6 +197,7 @@ int recv_file(char *data, size_t *data_filled) {
     bool end;
     bool file_end = false;
     int total_bytes_recv = 0;
+    int num_packets_recv = 0;
     while (!file_end) {
         // sleep until receives next packet
         if ((bytes_recv = recvfrom(sockfd, frame, MAX_FRAME_SIZE, 0, (struct sockaddr *) &client, &addr_len)) == -1) {
@@ -208,7 +209,8 @@ int recv_file(char *data, size_t *data_filled) {
             
         }
         total_bytes_recv += bytes_recv;
-        cout << "received " << bytes_recv << " bytes (total: " << total_bytes_recv << ")\n";     // debug
+        num_packets_recv++;
+        cout << "received packet " << (int) seq_num << "; " << bytes_recv << " bytes (total: " << total_bytes_recv << ")\n";     // debug
 
         // send ack
         send_ack(sockfd, client, addr_len, seq_num);
@@ -223,7 +225,7 @@ int recv_file(char *data, size_t *data_filled) {
         *data_filled += databuff_size;
 
         if(end){
-            cout << "Received File. Closing" << endl;
+            cout << "Received File in " << num_packets_recv << " packets. Closing" << endl;
             file_end = true;
         }
     }
@@ -247,6 +249,7 @@ int main(int argc, char *argv[]) {
     // write packet contents to file
     ofstream dst ("dst");
     if (dst.is_open()) {
+        cout << "data_filled: " << data_filled << endl;
         dst.write(data, data_filled);
         // dst.seekp(0, ios::end);
     }
