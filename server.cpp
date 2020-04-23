@@ -11,6 +11,7 @@
 #include <iostream>
 #include <fstream>
 #include <thread>
+#include <stdint.h>
 
 #define HOST NULL   // NULL = localhost
 #define PORT "9898"
@@ -20,6 +21,8 @@
 
 using namespace std;
 
+int sockfd;
+
 // get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *addr) {
 	if (addr->sa_family == AF_UNSPEC) {
@@ -28,9 +31,13 @@ void *get_in_addr(struct sockaddr *addr) {
 	return &(((struct sockaddr_in6*)addr)->sin6_addr);
 }
 
-// TODO: implement
-int send_ack(int seq_num) {
-    // cout << "ack " << seq_num << " sent\n";
+// CURRENT MAX SEQUENCE NUMBER: 256
+int send_ack(const int sockfd, sockaddr_storage client, socklen_t addr_len, const uint8_t seq_num) {
+    if (sendto(sockfd, &seq_num, 1, 0, (struct sockaddr *) &client, addr_len) == -1) {
+        perror("sendto");
+        exit(1);
+    }
+    cout << "ack " << (int) seq_num << " sent\n";
     return 0;
 }
 
@@ -131,20 +138,14 @@ void sr(){
         //deliver n and following in order buffered until next unreceived packet
 }
 
-int main(int argc, char *argv[]) {
-    string protocol;
-    int packetSize;
-    int timeoutInterval;
-    int sizeOfWindow;
-    int rangeOfSequence;
-    
-    //promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence);
-    
+/**
+ * Sets global variable sockfd to valid socket file descriptor
+ */
+void create_socket() {
     // prepare socket syscall
     struct addrinfo hints, *servinfo;
-
     memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_INET;    // don't care IPv4 or IPv6
+    hints.ai_family = AF_INET;    // IPv4
     hints.ai_socktype = SOCK_DGRAM; // datagram socket
     hints.ai_flags = AI_PASSIVE;    // fill in IP
 
@@ -157,21 +158,18 @@ int main(int argc, char *argv[]) {
 
     // loop through all the results and bind to the first successful
     struct addrinfo *node;
-    int sockfd;
     for (node = servinfo; node != NULL; node = node->ai_next) {
         // attempt socket syscall
         if ((sockfd = socket(node->ai_family, node->ai_socktype, node->ai_protocol)) == -1) {
             perror("socket");
             continue;
         }
-
         // if successful, bind socket
         if (::bind(sockfd, node->ai_addr, node->ai_addrlen) == -1) {
             close(sockfd);
             perror("bind");
             continue;
         }
-
         break;
     }
 
@@ -180,11 +178,14 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "failed to bind socket\n");
         exit(1);
     }
-
     freeaddrinfo(servinfo); // free the linked list
-
     printf("listening on port %s...\n", PORT);
+}
 
+/**
+ * Returns total bytes received
+ */
+int recv_file(char *data, size_t *data_filled) {
     sockaddr_storage client;
     socklen_t addr_len = sizeof client;
     char frame[MAX_FRAME_SIZE];
@@ -194,16 +195,13 @@ int main(int argc, char *argv[]) {
     int frame_error;
     int databuff_size;
     bool end;
-    ofstream dst ("dst");
     bool file_end = false;
     int total_bytes_recv = 0;
-    size_t data_filled = 0;
-    char *data = new char[MB_512];   // allocate 512 mb
     while (!file_end) {
         // sleep until receives next packet
         if ((bytes_recv = recvfrom(sockfd, frame, MAX_FRAME_SIZE, 0, (struct sockaddr *) &client, &addr_len)) == -1) {
             perror("recvfrom");
-            exit(1);
+            continue;
         }
         frame_error = unpack_data(frame, &seq_num, data_buff, &databuff_size, &end);
         if(frame_error){
@@ -213,33 +211,50 @@ int main(int argc, char *argv[]) {
         cout << "received " << bytes_recv << " bytes (total: " << total_bytes_recv << ")\n";     // debug
 
         // send ack
-        thread (send_ack, seq_num).detach();    // TODO: may need to free memory
+        send_ack(sockfd, client, addr_len, seq_num);
 
-        if (data_filled + databuff_size > MB_512) {
+        if (*data_filled + databuff_size > MB_512) {
             // TODO: write to file on new thread instead of killing the program
             fprintf(stderr, "Buffer not big enough");
             exit(1);
         }
 
-        memcpy(data + data_filled, data_buff, databuff_size);
-        data_filled += databuff_size;
+        memcpy(data + *data_filled, data_buff, databuff_size);
+        *data_filled += databuff_size;
 
         if(end){
             cout << "Received File. Closing" << endl;
             file_end = true;
         }
     }
+    return total_bytes_recv;
+}
+
+int main(int argc, char *argv[]) {
+    // string protocol;
+    // int packetSize;
+    // int timeoutInterval;
+    // int sizeOfWindow;
+    // int rangeOfSequence;
+    
+    //promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence);
+    create_socket();
+
+    char *data = new char[MB_512];   // allocate 512 mb
+    size_t data_filled = 0;
+    int total_bytes_recv = recv_file(data, &data_filled);
 
     // write packet contents to file
+    ofstream dst ("dst");
     if (dst.is_open()) {
         dst.write(data, data_filled);
         // dst.seekp(0, ios::end);
     }
     delete[] data;
 
-    char client_addr[INET6_ADDRSTRLEN];
-    inet_ntop(client.ss_family, get_in_addr((struct sockaddr *) &client), client_addr, sizeof client_addr);
-    cout << "received " << total_bytes_recv << " bytes from " << client_addr << '\n';
+    // char client_addr[INET6_ADDRSTRLEN];
+    // inet_ntop(client.ss_family, get_in_addr((struct sockaddr *) &client), client_addr, sizeof client_addr);
+    cout << "received " << total_bytes_recv << " bytes\n";
 
     dst.close();
     close(sockfd);
