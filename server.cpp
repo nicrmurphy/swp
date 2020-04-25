@@ -208,7 +208,7 @@ void create_socket() {
 
 /*
 *   Transfer a file using sliding window.
-    Currently only works if the total number of pakcets <= window size.
+    Currently only works if the total number of packets <= window size.
     TODO: add writing out and clearing the window so it can slide back to zero, overwritting the original data
 */
 int window_recv_file(char *data, size_t *data_filled) {
@@ -278,11 +278,11 @@ int window_recv_file(char *data, size_t *data_filled) {
         // TODO: write out data when rw reaches a max or lw is a minimum
         if(rw == seq_size - 1){
             // write out from 0 - lw
-            // set recieved 0 - lw to false
+            // set received 0 - lw to false
         }
         if(lw == 0){
             // write out from rw +1 to seq_size -1
-            // set recieved rw +1 to seq_size -1 to false
+            // set received rw +1 to seq_size -1 to false
         }
 
         // Because end can change if packets arrive out of order, keep track of found End
@@ -292,6 +292,9 @@ int window_recv_file(char *data, size_t *data_filled) {
         }
        
         // if the last packed has been sent and all before have been sent,
+        //TODO: this should be changed when we get complete window shifting to work.
+        // Should change to loop through the entire window and only add data if received[i] is true,
+        // so we can avoid duplicate values.
         if(foundEnd && !inWindow(last_seq_num)){
             // write out the data in the window to the buffer
             for (size_t i = 0; i < last_seq_num; i++)
