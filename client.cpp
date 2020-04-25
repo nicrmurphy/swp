@@ -13,10 +13,11 @@
 #include <chrono>
 #include <ctime>
 #include <thread>
+#include <mutex>
 
 #define PORT "9898"
-#define MAX_DATA_SIZE 1024 * 8
-#define MAX_FRAME_SIZE 1024 * 8 + 10 // to hold extra header data
+#define MAX_DATA_SIZE 1024
+#define MAX_FRAME_SIZE 1024 + 10 // to hold extra header data
 
 using namespace std;
 
@@ -30,12 +31,13 @@ int sockfd;
 char *host;
 char *filepath;
 
-int window_size;
+int window_size = 5;
 int seq_size = 10;
 bool acked[10];
-char* window[10];
+char window[10][MAX_FRAME_SIZE];
 int lw = 0;
 int rw = window_size - 1;
+int total_bytes_sent = 0;
 mutex window_mutex;
 
 char checksum(char *frame, int count) {
@@ -122,6 +124,26 @@ int send_packet(addrinfo *servinfo, char *frame, const int seq_num, char *data, 
     return bytes_sent;
 }
 
+// Returns true if index is in the current window
+bool inWindow(int index){
+    return (index >= lw && index <= rw) || (index >= lw && rw <= lw) || (index <= rw && rw <= lw);
+
+}
+int send_packet_no_pack(addrinfo *servinfo, char *frame, const int seq_num, bool end) {
+    int bytes;
+    //int frame_size = pack_data(frame, seq_num, data, data_size, end);
+    if ((bytes = sendto(sockfd, frame, MAX_FRAME_SIZE, 0, servinfo->ai_addr, servinfo->ai_addrlen)) == -1) {
+        perror("sendto");
+        return 1;
+    }
+
+    lps_mutex.lock();
+    lps = seq_num;
+    lps_mutex.unlock();
+
+    return bytes;
+}
+
 void recv_ack(addrinfo *server, const int num_acks) {
     int timeout = 0;
 
@@ -147,6 +169,9 @@ void recv_ack(addrinfo *server, const int num_acks) {
             while (acked[lw] == true) {
                 lw = (lw + 1) % seq_size;
                 rw = (rw + 1) % seq_size;
+                total_bytes_sent += MAX_FRAME_SIZE;
+                cout << "Window: [" << lw << " to " << rw << "]" << endl;
+
             }
             window_mutex.unlock();
         }
@@ -210,13 +235,13 @@ void gbn(addrinfo *clientinfo, addrinfo *servinfo) {
         src.read(data,data_size);
         send_window(servinfo, frame, data, data_size, end);
 
-        if(end){
-            for 
-                // check all ack
+        // if(end){
+        //     for 
+        //         // check all ack
 
-            if()
-        }
-        if (end && ) done = true;
+        //     if()
+        // }
+        // if (end && ) done = true;
 
         // end when the last packet has been sent and all acks in the acked array are true
         
@@ -320,6 +345,167 @@ void gbn(addrinfo *clientinfo, addrinfo *servinfo) {
 //     return 0;
 // }
 
+void transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
+    // read in file 
+    char data[MAX_DATA_SIZE];
+    long data_len;
+    ifstream src(filepath, ios::in | ios::binary | ios::ate);
+    if (src.is_open()) {
+        data_len = src.tellg();     // fill data_len with size of file in bytes
+        //data = new char[data_len];  // allocate memory for data memory block
+        src.seekg(0, ios::beg);     // change stream pointer location to beginning of file
+       // src.read(data, data_len);   // read in file contents to data
+       // src.close();                // close iostream
+    } else {
+        fprintf(stderr, "failed to read file %s\n", filepath);
+        exit(1);
+    }
+    // determine the number of packets required for the transfer
+    int numBlocks = data_len / (MAX_DATA_SIZE);
+    // determine size of last packet
+    int leftover = data_len % (MAX_DATA_SIZE);
+    if(leftover){
+        numBlocks++;
+    }
+    thread recv_thread(recv_ack, clientinfo, numBlocks);
+
+    // break up file data into packets and send packets
+    int bytes_sent = 0, total = 0;
+    char frame[MAX_FRAME_SIZE];
+    int end = false;
+    int num_packets_sent = 0;
+    // read each section of data from the file, package, and send them 
+    for (int i = 0; i < numBlocks; i++)
+    {
+        int seq_num = i % 256;      // TODO: implement sequence numbers
+        int data_size = MAX_DATA_SIZE;
+        if (i == numBlocks - 1) {
+            if (leftover) {
+                data_size = leftover;
+            }
+            end = true;
+        }
+        // read the data from the file. This should probably later be done in larger chunks
+        src.read(data,data_size);
+        bytes_sent = send_packet(servinfo, frame, seq_num, data, data_size, end);
+        total += bytes_sent;
+        num_packets_sent++;
+        cout << "sent packet " << seq_num << "; " << bytes_sent << " (total: " << total << ") bytes to " << host << "\n";
+    }
+    cout << "sent " << total << " bytes in " << num_packets_sent << " packets to " << host << "\n";
+    src.close();
+    recv_thread.detach();
+}
+
+/*
+*   Transfer a file using sliding window.
+    Currently only works if the total number of packets <= max_seq_num.
+    TODO: add reading in data and clearing out old ones so it can slide back to zero.
+*/
+void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
+    // read in file 
+    char data[MAX_DATA_SIZE];
+    long data_len;
+    ifstream src(filepath, ios::in | ios::binary | ios::ate);
+    if (src.is_open()) {
+        data_len = src.tellg();     // fill data_len with size of file in bytes
+        //data = new char[data_len];  // allocate memory for data memory block
+        src.seekg(0, ios::beg);     // change stream pointer location to beginning of file
+       // src.read(data, data_len);   // read in file contents to data
+       // src.close();                // close iostream
+    } else {
+        fprintf(stderr, "failed to read file %s\n", filepath);
+        exit(1);
+    }
+    // determine the number of packets required for the transfer
+    int numBlocks = data_len / (MAX_DATA_SIZE);
+    // determine size of last packet
+    int leftover = data_len % (MAX_DATA_SIZE);
+    if(leftover){
+        numBlocks++;
+    }
+    // create a buffer to hold all data
+    char buffer[MAX_DATA_SIZE * numBlocks];
+    memset(buffer, 0, MAX_DATA_SIZE *numBlocks );
+
+    src.read(buffer, data_len);
+    cout << "Sending file in " << numBlocks << " of size " << data_len << endl;
+
+    //initialize the window and load in data
+    // if the number of blocks exceeds the number of sequence numbers, fully load the array from 0 - seq_max
+    if(numBlocks > seq_size){
+       for (size_t i = 0; i < seq_size; i++)
+       {
+           // pack daata into the window from the buffer
+           pack_data(window[i], i, buffer  + i * MAX_DATA_SIZE, MAX_DATA_SIZE, false);
+           acked[i] = false;
+        }
+    }else{
+        // numBlocks < max_seq_val
+        // means there will be a window that's data size < MAX_DATA_SIZE
+        if(numBlocks > 1){
+            for (size_t i = 0; i < numBlocks - 1; i++)
+            {
+
+                pack_data(window[i], i, buffer  + i * MAX_DATA_SIZE, MAX_DATA_SIZE, false);
+                acked[i] = false;
+            } 
+        }
+        // calculate the data size of the last leftover packet
+        int data_size;
+        if(leftover){
+            data_size = leftover;
+        }else{
+            data_size = MAX_DATA_SIZE;
+        }
+        //pack the data into it's slot in the window
+        pack_data(window[numBlocks - 1], numBlocks - 1, buffer + (numBlocks - 1 ) * MAX_DATA_SIZE, data_size, true);
+        acked[numBlocks - 1] = false;
+    }
+   
+    thread recv_thread(recv_ack, clientinfo, numBlocks);
+
+    bool done = false;
+    bool end_of_file = false;
+    int end_seq_num;
+    int bytes_sent = 0;
+    while(!done){
+        // not sure if I should move the lock, it seems like the recv thread can never get into anything if this loop hoards the variables
+        window_mutex.lock();
+        //cycle through from [lw to rw]
+        for (size_t seq_num = lw % seq_size; seq_num != rw + 1; seq_num++)
+        {            
+            //go through and send each packet in the window that has not been acked already
+            if(total_bytes_sent < data_len && !acked[seq_num]){
+                // if it is the last packet, make end of file
+                //TODO: make a better way of keeping track if it's the last packet or not. total_bytes_sent currently just += with MAX_DATA_SIZE every time something is acked.
+                if(total_bytes_sent + MAX_DATA_SIZE >= data_len && !end_of_file){
+                    // keep track of the last sequence number to make sure we know when to end
+                    end_seq_num = seq_num;
+                    end_of_file = true;
+                    
+                }
+                bytes_sent = send_packet_no_pack(servinfo, window[seq_num], seq_num, end_of_file);
+                //cout << "sent packet " << seq_num << "; " << bytes_sent << " bytes to " << host << "\n";
+
+            }
+        }
+        // if we have sent the last packet, and the ending sequence number is not in the window,
+        // we know all packets have been sent and acked
+        if(end_of_file){
+            if(!inWindow(end_seq_num)){
+                done = true;
+            }
+        } 
+        window_mutex.unlock();
+        
+    }
+
+
+    src.close();
+    recv_thread.detach();
+}
+
 int main(int argc, char *argv[]) {
     // string protocol;
     // int packetSize;
@@ -386,57 +572,8 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    gbn(node, servinfo);
-
-    // // read in file 
-    // char data[MAX_DATA_SIZE];
-    // long data_len;
-    // ifstream src(filepath, ios::in | ios::binary | ios::ate);
-    // if (src.is_open()) {
-    //     data_len = src.tellg();     // fill data_len with size of file in bytes
-    //     //data = new char[data_len];  // allocate memory for data memory block
-    //     src.seekg(0, ios::beg);     // change stream pointer location to beginning of file
-    //    // src.read(data, data_len);   // read in file contents to data
-    //    // src.close();                // close iostream
-    // } else {
-    //     fprintf(stderr, "failed to read file %s\n", filepath);
-    //     exit(1);
-    // }
-    // // determine the number of packets required for the transfer
-    // int numBlocks = data_len / (MAX_DATA_SIZE);
-    // // determine size of last packet
-    // int leftover = data_len % (MAX_DATA_SIZE);
-    // if(leftover){
-    //     numBlocks++;
-    // }
-    // thread recv_thread(recv_ack, node, numBlocks);
-
-    // // break up file data into packets and send packets
-    // int bytes_sent = 0, total = 0;
-    // char frame[MAX_FRAME_SIZE];
-    // int end = false;
-    // int num_packets_sent = 0;
-    // // read each section of data from the file, package, and send them 
-    // for (int i = 0; i < numBlocks; i++)
-    // {
-    //     int seq_num = i % 256;      // TODO: implement sequence numbers
-    //     int data_size = MAX_DATA_SIZE;
-    //     if (i == numBlocks - 1) {
-    //         if (leftover) {
-    //             data_size = leftover;
-    //         }
-    //         end = true;
-    //     }
-    //     // read the data from the file. This should probably later be done in larger chunks
-    //     src.read(data,data_size);
-    //     bytes_sent = send_packet(servinfo, frame, seq_num, data, data_size, end);
-    //     total += bytes_sent;
-    //     num_packets_sent++;
-    //     cout << "sent packet " << seq_num << "; " << bytes_sent << " (total: " << total << ") bytes to " << host << "\n";
-    // }
-    // cout << "sent " << total << " bytes in " << num_packets_sent << " packets to " << host << "\n";
-    // src.close();
-    // recv_thread.detach();
+    //transfer_file(node, servinfo);
+    window_transfer_file(node, servinfo);
 
     cout << endl;
     cout << "main thread complete\n";
