@@ -206,6 +206,11 @@ void create_socket() {
     printf("listening on port %s...\n", PORT);
 }
 
+/*
+*   Transfer a file using sliding window.
+    Currently only works if the total number of pakcets <= window size.
+    TODO: add writing out and clearing the window so it can slide back to zero, overwritting the original data
+*/
 int window_recv_file(char *data, size_t *data_filled) {
     sockaddr_storage client;
     socklen_t addr_len = sizeof client;
@@ -223,6 +228,7 @@ int window_recv_file(char *data, size_t *data_filled) {
     int frame_error;
     int databuff_size;
     bool end;
+    int end_packet_size = 0;
     bool foundEnd = false;
     bool file_end = false;
     int total_bytes_recv = 0;
@@ -247,7 +253,7 @@ int window_recv_file(char *data, size_t *data_filled) {
         //ony copy data into the window if it has not been received yet and it's crc passes
         if(received[seq_num] == false && !frame_error){
             // does the memory need to be cleared whenn databuff_size < MAX_DATA_SIZE?
-            memcpy(window[seq_num], data, databuff_size);
+            memcpy(window[seq_num], data_buff, databuff_size);
             received[seq_num] = true;
             total_bytes_recv += bytes_recv;
             num_packets_recv++;
@@ -282,22 +288,25 @@ int window_recv_file(char *data, size_t *data_filled) {
         // Because end can change if packets arrive out of order, keep track of found End
         if(end){
             foundEnd = true;
+            end_packet_size = databuff_size;
         }
        
         // if the last packed has been sent and all before have been sent,
         if(foundEnd && !inWindow(last_seq_num)){
-            // write out the data to the buffer
+            // write out the data in the window to the buffer
             for (size_t i = 0; i < last_seq_num; i++)
             {
                 memcpy(data + *data_filled, window[i], MAX_DATA_SIZE);
                 *data_filled += MAX_DATA_SIZE;
             }
+            // fill in the last packet into data
+            memcpy(data + *data_filled, window[last_seq_num], end_packet_size);
+            *data_filled += end_packet_size;
 
             cout << "Received File in " << num_packets_recv << " packets. Closing" << endl;
             file_end = true;
             
         }
-
         //  memcpy(data + *data_filled, data_buff, databuff_size);
         //  *data_filled += databuff_size;
     }
@@ -366,7 +375,7 @@ int main(int argc, char *argv[]) {
 
     char *data = new char[MB_512];   // allocate 512 mb
     size_t data_filled = 0;
-    
+
     //int total_bytes_recv = recv_file(data, &data_filled);
     int total_bytes_recv = window_recv_file(data, &data_filled);
 

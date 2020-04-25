@@ -397,7 +397,11 @@ void transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
     recv_thread.detach();
 }
 
-
+/*
+*   Transfer a file using sliding window.
+    Currently only works if the total number of pakcets <= window size.
+    TODO: add reading in data and clearing out old ones so it can slide back to zero.
+*/
 void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
     // read in file 
     char data[MAX_DATA_SIZE];
@@ -425,7 +429,7 @@ void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
     memset(buffer, 0, MAX_DATA_SIZE *numBlocks );
 
     src.read(buffer, data_len);
-    cout << "Num BLocks " <<numBlocks << endl;
+    cout << "Sending file in " << numBlocks << " of size " << data_len << endl;
 
     //initialize the window and load in data
     // if the number of blocks exceeds the number of sequence numbers, fully load the array from 0 - seq_max
@@ -464,6 +468,7 @@ void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
     bool done = false;
     bool end_of_file = false;
     int end_seq_num;
+    int bytes_sent = 0;
     while(!done){
         // not sure if I should move the lock, it seems like the recv thread can never get into anything if this loop hoards the variables
         window_mutex.lock();
@@ -480,7 +485,9 @@ void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
                     end_of_file = true;
                     
                 }
-                send_packet_no_pack(servinfo, window[seq_num], seq_num, end_of_file);
+                bytes_sent = send_packet_no_pack(servinfo, window[seq_num], seq_num, end_of_file);
+                //cout << "sent packet " << seq_num << "; " << bytes_sent << " bytes to " << host << "\n";
+
             }
         }
         // if we have sent the last packet, and the ending sequence number is not in the window,
