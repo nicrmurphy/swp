@@ -208,7 +208,7 @@ void create_socket() {
 
 /*
 *   Transfer a file using sliding window.
-    Currently only works if the total number of packets <= window size.
+    Currently only works if the total number of packets <= max_seq_num.
     TODO: add writing out and clearing the window so it can slide back to zero, overwritting the original data
 */
 int window_recv_file(char *data, size_t *data_filled) {

@@ -399,7 +399,7 @@ void transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
 
 /*
 *   Transfer a file using sliding window.
-    Currently only works if the total number of packets <= window size.
+    Currently only works if the total number of packets <= max_seq_num.
     TODO: add reading in data and clearing out old ones so it can slide back to zero.
 */
 void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
