@@ -124,6 +124,7 @@ int send_packet(addrinfo *servinfo, char *frame, const int seq_num, char *data, 
     return bytes_sent;
 }
 
+// Returns true if index is in the current window
 bool inWindow(int index){
     return (index >= lw && index <= rw) || (index >= lw && rw <= lw) || (index <= rw && rw <= lw);
 
@@ -398,10 +399,6 @@ void transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
 
 
 void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
-
-   //     char strs[NUMBER_OF_STRINGS][STRING_LENGTH+1];
-
-
     // read in file 
     char data[MAX_DATA_SIZE];
     long data_len;
@@ -423,22 +420,25 @@ void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
     if(leftover){
         numBlocks++;
     }
-
+    // create a buffer to hold all data
     char buffer[MAX_DATA_SIZE * numBlocks];
     memset(buffer, 0, MAX_DATA_SIZE *numBlocks );
 
     src.read(buffer, data_len);
     cout << "Num BLocks " <<numBlocks << endl;
 
-    //initialize the window
+    //initialize the window and load in data
+    // if the number of blocks exceeds the number of sequence numbers, fully load the array from 0 - seq_max
     if(numBlocks > seq_size){
        for (size_t i = 0; i < seq_size; i++)
        {
+           // pack daata into the window from the buffer
            pack_data(window[i], i, buffer  + i * MAX_DATA_SIZE, MAX_DATA_SIZE, false);
            acked[i] = false;
         }
     }else{
-        // numBlocks <= 10 (or max_seq_val)
+        // numBlocks < max_seq_val
+        // means there will be a window that's data size < MAX_DATA_SIZE
         if(numBlocks > 1){
             for (size_t i = 0; i < numBlocks - 1; i++)
             {
@@ -447,41 +447,33 @@ void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
                 acked[i] = false;
             } 
         }
+        // calculate the data size of the last leftover packet
         int data_size;
         if(leftover){
             data_size = leftover;
         }else{
             data_size = MAX_DATA_SIZE;
         }
+        //pack the data into it's slot in the window
         pack_data(window[numBlocks - 1], numBlocks - 1, buffer + (numBlocks - 1 ) * MAX_DATA_SIZE, data_size, true);
         acked[numBlocks - 1] = false;
     }
    
     thread recv_thread(recv_ack, clientinfo, numBlocks);
 
-    cout << "Got here" << endl;
     bool done = false;
     bool end_of_file = false;
     int end_seq_num;
-    ///cout << lw << " " << rw << endl;
     while(!done){
-
-
+        // not sure if I should move the lock, it seems like the recv thread can never get into anything if this loop hoards the variables
         window_mutex.lock();
-
+        //cycle through from [lw to rw]
         for (size_t seq_num = lw % seq_size; seq_num != rw + 1; seq_num++)
-        {
-              //  cout << "Got here" << endl;
-
-            //if there is still data to be sent and the packet has not been acked
-            
+        {            
             //go through and send each packet in the window that has not been acked already
-            //cout << "Bytes sent" << bytes_sent << "Data " << data_len << endl;
-            //cout << "end of file " << end_of_file << endl;
             if(total_bytes_sent < data_len && !acked[seq_num]){
-                //cout << "Bytes sent: " << bytes_sent << " Data len " << data_len << endl;
                 // if it is the last packet, make end of file
-                //cout << bytes_sent << " + " << MAX_DATA_SIZE << " <= " << data_len << endl;
+                //TODO: make a better way of keeping track if it's the last packet or not. total_bytes_sent currently just += with MAX_DATA_SIZE every time something is acked.
                 if(total_bytes_sent + MAX_DATA_SIZE >= data_len && !end_of_file){
                     // keep track of the last sequence number to make sure we know when to end
                     end_seq_num = seq_num;
@@ -489,15 +481,11 @@ void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
                     
                 }
                 send_packet_no_pack(servinfo, window[seq_num], seq_num, end_of_file);
-               // cout << "sent packet " << seq_num <<"; "<<  bytes_sent << " bytes to " << host << "\n";
-
             }
         }
         // if we have sent the last packet, and the ending sequence number is not in the window,
         // we know all packets have been sent and acked
         if(end_of_file){
-            //cout << "GPT ERE" << endl;
-            //cout << "LW " << lw << " RW " << rw << "END s " << end_seq_num << endl;
             if(!inWindow(end_seq_num)){
                 done = true;
             }
@@ -577,6 +565,7 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
+    //transfer_file(node, servinfo);
     window_transfer_file(node, servinfo);
 
     cout << endl;
