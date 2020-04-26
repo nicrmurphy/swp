@@ -379,8 +379,8 @@ int main(int argc, char *argv[]) {
     char *data = new char[MB_512];   // allocate 512 mb
     size_t data_filled = 0;
 
-    //int total_bytes_recv = recv_file(data, &data_filled);
-    int total_bytes_recv = window_recv_file(data, &data_filled);
+    int total_bytes_recv = recv_file(data, &data_filled);
+    // int total_bytes_recv = window_recv_file(data, &data_filled);
 
 
     // write packet contents to file
