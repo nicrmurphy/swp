@@ -13,6 +13,7 @@
 #include <chrono>
 #include <ctime>
 #include <thread>
+#include <time.h>
 #include <mutex>
 
 #define PORT "9898"
@@ -24,9 +25,10 @@ using namespace std;
 int sockfd;
 char *host;
 char *filepath;
-
 int window_size;
 int seq_size;
+bool gbn;
+
 bool *acked;
 time_t gbn_timeout;
 time_t *sr_timeouts;
@@ -131,7 +133,7 @@ void recv_ack(addrinfo *server, const int num_acks) {
 
             // count ack and slide window
             window_mutex.lock();
-            // gbn slide or sr slide
+            // TODO: gbn always slides window to lar within window; sr only slides if lw is acked
             acked[ack % window_size] = true;
             int lw = (data_pos / MAX_DATA_SIZE) % window_size;
             int rw = (lw + window_size) % window_size;
@@ -143,7 +145,9 @@ void recv_ack(addrinfo *server, const int num_acks) {
                     return;
                 }
                 lw = (data_pos / MAX_DATA_SIZE) % window_size;
+                rw = (lw + window_size) % window_size;
                 acked[rw] = false;
+                sr_timeouts[rw] = -1;
             }
             print_window();
             window_mutex.unlock();
@@ -164,6 +168,7 @@ void send_window(addrinfo *servinfo, char *data) {
     }
     long leftover = data_len % MAX_DATA_SIZE;
     long packet_data_size = MAX_DATA_SIZE;
+    // TODO: gbn sends all always; sr only sends non-acked packets
     for (long i = data_pos; i < rw; i += MAX_DATA_SIZE) {
         long seq_num = (i / MAX_DATA_SIZE) % seq_size;
         // cout << "end: " << end << ", leftover: " << leftover << ", i: " << i << ", rw: " << rw << endl;
@@ -206,27 +211,17 @@ void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
     int numBlocks = data_len / (MAX_DATA_SIZE);
     // determine size of last packet
     int leftover = data_len % (MAX_DATA_SIZE);
-    if (leftover){
-        numBlocks++;
-    }
+    if (leftover) numBlocks++;
     num_packets_sent = numBlocks;
 
-    cout << "Sending file in " << numBlocks << " packets of size " << data_len << endl;
-    cout << "window size: " << window_size << "; seq range: 0-" << seq_size << endl;
-
-    // fill_window(data, numBlocks, leftover);   
     thread recv_thread(recv_ack, clientinfo, numBlocks);
-
     bool done = false;
-
-    while(!done){
+    while (!done) {
         window_mutex.lock();
         if (data_pos >= data_len) break;
-        // if gbn, send entire window
         send_window(servinfo, data);
-        // if sr, send only non-acked packets within window
         window_mutex.unlock();
-        this_thread::sleep_for(chrono::milliseconds(10));
+        if (gbn) this_thread::sleep_for(chrono::milliseconds(gbn_timeout));
     }
     delete[] data;
     recv_thread.detach();
@@ -235,10 +230,10 @@ void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
 void print_stats(clock_t start_time) {
     cout << "Number of original packets sent: " << num_packets_sent << endl;
     cout << "Number of retransmitted packets: " << num_packets_resent << endl;
-    cout << clock() << ", " << start_time << endl;
-    double elapsed_seconds = ((clock() - start_time) / (double) CLOCKS_PER_SEC);    // TODO: might be wrong
-    cout << "Total elapsed time: " << elapsed_seconds << endl;
-    cout << "Effective throughput (Mbps): " << data_len * 8 / elapsed_seconds / 1048576 << endl;
+    double elapsed_seconds = (clock() - start_time) / (double) CLOCKS_PER_SEC * 10;    // TODO: might be wrong
+    cout << "Total elapsed time: " << (double) elapsed_seconds << endl;
+    cout << "Total throughput (Mbps): " << data_len * 8 / elapsed_seconds / 1048576 << endl;
+    cout << "Effective throughput: " << endl;
 }
 
 int main(int argc, char *argv[]) {
@@ -262,7 +257,8 @@ int main(int argc, char *argv[]) {
     seq_size = 32;
     acked = new bool[window_size];
     sr_timeouts = new time_t[window_size];
-
+    gbn = true;
+    if (gbn) gbn_timeout = 10;    // in ms
 
     // prepare socket
     struct addrinfo hints, *servinfo, *clientinfo;
@@ -304,7 +300,7 @@ int main(int argc, char *argv[]) {
 
         break;
     }
-    freeaddrinfo(clientinfo); // free the linked list
+    freeaddrinfo(clientinfo);
 
     // if successful, node now points to the info of the successfully created socket
     if (node == NULL) {
