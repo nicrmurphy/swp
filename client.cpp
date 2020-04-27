@@ -71,6 +71,18 @@ void print_window() {
     cout << "]" << endl;
 }
 
+/**
+ * Prints ack mask array to console. Used in debugging.
+ */
+void print_acked() {
+    cout << "         Acked = [";
+    for (long i = data_pos; i < data_pos + (window_size * MAX_DATA_SIZE); i += MAX_DATA_SIZE) {
+        long seq_num = (i / MAX_DATA_SIZE) % seq_size;
+        cout << (i != data_pos ? ", " : "") << (seq_num > 9 ? " " : "") << acked[seq_num % window_size];
+    }
+    cout << "]" << endl;
+}
+
 void generateErrors(){}
 void promptErrors(){}
 
@@ -128,30 +140,36 @@ void recv_ack(addrinfo *server, const int num_acks) {
         if (recvfrom(sockfd, &ack, 1, 0, (struct sockaddr *) server, &addr_len) == -1) {
             perror("recvfrom");
             exit(1);
-        } else {
-            printf("Ack %d received\n", ack);
-
-            // count ack and slide window
-            window_mutex.lock();
-            // TODO: gbn always slides window to lar within window; sr only slides if lw is acked
-            acked[ack % window_size] = true;
-            int lw = (data_pos / MAX_DATA_SIZE) % window_size;
-            int rw = (lw + window_size) % window_size;
-            while (acked[lw]) {
-                data_pos += MAX_DATA_SIZE;
-                if (data_pos >= data_len) {
-                    window_mutex.unlock();
-                    cout << "recv_ack thread complete \n";
-                    return;
-                }
-                lw = (data_pos / MAX_DATA_SIZE) % window_size;
-                rw = (lw + window_size) % window_size;
-                acked[rw] = false;
-                sr_timeouts[rw] = -1;
-            }
-            print_window();
-            window_mutex.unlock();
         }
+        // TODO: improve situational errors
+        // if ((clock() & 2) == 0) continue;   // if system time is even number, drop ack
+        printf("Ack %d received\n", ack);
+
+        // count ack and slide window
+        window_mutex.lock();
+        // gbn always slides window to lar within window; sr only slides if lw is acked
+        acked[ack % window_size] = true;
+        int lw = (data_pos / MAX_DATA_SIZE) % window_size;
+        // int rw = (lw + window_size) % window_size;
+        int a = data_pos / MAX_DATA_SIZE;
+        while (gbn && a <= ack) {
+            // cout << (a % seq_size) << endl;  // debug
+            acked[a % seq_size] = true;     // ack all packets < lar
+            a++;
+        }
+        while (acked[lw]) {
+            data_pos += MAX_DATA_SIZE;
+            if (data_pos >= data_len) {
+                window_mutex.unlock();
+                cout << "recv_ack thread complete \n";
+                return;
+            }
+            acked[lw] = false;
+            lw = (data_pos / MAX_DATA_SIZE) % window_size;
+        }
+        print_window();
+        // print_acked();  // debug
+        window_mutex.unlock();
     }
     cout << "recv_ack thread complete \n";
 }
@@ -177,7 +195,7 @@ void send_window(addrinfo *servinfo, char *data) {
         // cout << "data_len: " << data_len << " accessing data from " << i << " to " << i + packet_data_size << endl; 
         if (i + packet_data_size > data_len) i = data_len - packet_data_size;
         memcpy(packet_data, data + i, packet_data_size);
-        int bytes_sent = send_packet(servinfo, seq_num, packet_data, packet_data_size, end && i == rw - packet_data_size);
+        /*int bytes_sent = */send_packet(servinfo, seq_num, packet_data, packet_data_size, end && i == rw - packet_data_size);
         cout << "Packet " << seq_num << " sent" << endl;//"; " << bytes_sent << " bytes to " << host << "\n";
     }
 }
