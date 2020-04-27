@@ -15,8 +15,8 @@
 
 #define HOST NULL   // NULL = localhost
 #define PORT "9898"
-#define MAX_DATA_SIZE 1024
-#define MAX_FRAME_SIZE 1024 + 10 // to hold extra header data
+#define MAX_DATA_SIZE 65000
+#define MAX_FRAME_SIZE 65010 // to hold extra header data
 #define MB_512 536870912
 
 using namespace std;
