@@ -1,12 +1,12 @@
 CC = g++
 CFLAGS = -Wall -g -std=c++11 -pthread
 
-all: clean server client
+all: server client
 	
-server:
+server: server.cpp
 	$(CC) $(CFLAGS) server.cpp -o server
 
-client:
+client: client.cpp
 	$(CC) $(CFLAGS) client.cpp -o client
 
 clean:
