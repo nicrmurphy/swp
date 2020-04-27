@@ -152,7 +152,7 @@ void recv_ack(addrinfo *server, const int num_acks) {
         int lw = (data_pos / MAX_DATA_SIZE) % window_size;
         // int rw = (lw + window_size) % window_size;
         int a = data_pos / MAX_DATA_SIZE;
-        while (gbn && a <= ack) {
+        while (false && a <= ack) {
             // cout << (a % seq_size) << endl;  // debug
             acked[a % seq_size] = true;     // ack all packets < lar
             a++;
@@ -276,7 +276,7 @@ int main(int argc, char *argv[]) {
     acked = new bool[window_size];
     sr_timeouts = new time_t[window_size];
     gbn = true;
-    if (gbn) gbn_timeout = 10;    // in ms
+    if (gbn) gbn_timeout = 50;    // in ms
 
     // prepare socket
     struct addrinfo hints, *servinfo, *clientinfo;

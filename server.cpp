@@ -317,9 +317,22 @@ int window_recv_file(char *data, size_t *data_filled) {
 }
 
 /**
+ * Write the contents in data buffer to output file
+ */
+void write_file(ofstream &dst, char *data, size_t data_size) {
+    // write packet contents to file
+    if (dst.is_open()) {
+        dst.write(data, data_size);
+        cout << "wrote " << data_size << " bytes to file." << endl;
+        dst.seekp(0, ios::end);
+    }
+}
+
+/**
  * Returns total bytes received
  */
 int recv_file(char *data, size_t *data_filled) {
+    ofstream dst("dst");
     sockaddr_storage client;
     socklen_t addr_len = sizeof client;
     char frame[MAX_FRAME_SIZE];
@@ -349,20 +362,22 @@ int recv_file(char *data, size_t *data_filled) {
         // send ack
         send_ack(sockfd, client, addr_len, seq_num);
 
-        if (*data_filled + databuff_size > MB_512) {
-            // TODO: write to file on new thread instead of killing the program
-            fprintf(stderr, "Buffer not big enough");
-            exit(1);
+        if (*data_filled + databuff_size > MAX_DATA_SIZE*window_size) {
+            write_file(dst, data, *data_filled);
+            *data_filled = 0;
         }
 
          memcpy(data + *data_filled, data_buff, databuff_size);
          *data_filled += databuff_size;
 
+        cout << "data_filled: " << *data_filled << endl;
         if(end){
+            write_file(dst, data, *data_filled);
             cout << "Received File in " << num_packets_recv << " packets. Closing" << endl;
             file_end = true;
         }
     }
+    dst.close();
     return total_bytes_recv;
 }
 
@@ -376,27 +391,22 @@ int main(int argc, char *argv[]) {
     //promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence);
     create_socket();
 
-    char *data = new char[MB_512];   // allocate 512 mb
+    char *data = new char[MAX_DATA_SIZE*window_size];   // allocate 512 mb
     size_t data_filled = 0;
 
     int total_bytes_recv = recv_file(data, &data_filled);
     // int total_bytes_recv = window_recv_file(data, &data_filled);
 
 
-    // write packet contents to file
-    ofstream dst ("dst");
-    if (dst.is_open()) {
-        cout << "data_filled: " << data_filled << endl;
-        dst.write(data, data_filled);
-        // dst.seekp(0, ios::end);
-    }
+
     delete[] data;
 
     // char client_addr[INET6_ADDRSTRLEN];
     // inet_ntop(client.ss_family, get_in_addr((struct sockaddr *) &client), client_addr, sizeof client_addr);
     cout << "received " << total_bytes_recv << " bytes\n";
+    system("md5 src dst");
 
-    dst.close();
+    // dst.close();
     close(sockfd);
     return 0;
 }
