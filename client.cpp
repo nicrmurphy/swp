@@ -17,8 +17,8 @@
 #include <mutex>
 
 #define PORT "9898"
-#define MAX_DATA_SIZE 64000
-#define MAX_FRAME_SIZE 64000 + 10 // to hold extra header data
+#define MAX_DATA_SIZE 65000
+#define MAX_FRAME_SIZE 65010 // to hold extra header data
 
 using namespace std;
 

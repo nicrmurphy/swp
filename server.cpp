@@ -15,8 +15,8 @@
 
 #define HOST NULL   // NULL = localhost
 #define PORT "9898"
-#define MAX_DATA_SIZE 64000
-#define MAX_FRAME_SIZE 64000 + 10 // to hold extra header data
+#define MAX_DATA_SIZE 65000
+#define MAX_FRAME_SIZE 65010 // to hold extra header data
 #define MB_512 536870912
 
 using namespace std;
@@ -322,59 +322,6 @@ int window_recv_file(char *data, size_t *data_filled) {
             dst.close();
         }
     }
-    return total_bytes_recv;
-}
-
-/**
- * Returns total bytes received
- */
-int recv_file(char *data, size_t *data_filled) {
-    ofstream dst("dst");
-    sockaddr_storage client;
-    socklen_t addr_len = sizeof client;
-    char frame[MAX_FRAME_SIZE];
-    char data_buff[MAX_DATA_SIZE];
-    int bytes_recv;
-    int seq_num;
-    int frame_error;
-    int databuff_size;
-    bool end;
-    bool file_end = false;
-    int total_bytes_recv = 0;
-    int num_packets_recv = 0;
-    while (!file_end) {
-        // sleep until receives next packet
-        if ((bytes_recv = recvfrom(sockfd, frame, MAX_FRAME_SIZE, 0, (struct sockaddr *) &client, &addr_len)) == -1) {
-            perror("recvfrom");
-            continue;
-        }
-        frame_error = unpack_data(frame, &seq_num, data_buff, &databuff_size, &end);
-        if(frame_error){
-            cout << "There has been a frame error!";
-        }
-        total_bytes_recv += bytes_recv;
-        num_packets_recv++;
-        cout << "received packet " << (int) seq_num << "; data: "<<databuff_size<<"; " << bytes_recv << " bytes (total: " << total_bytes_recv << ")\n";     // debug
-
-        // send ack
-        send_ack(sockfd, client, addr_len, seq_num);
-
-        if (*data_filled + databuff_size > MAX_DATA_SIZE*8) {
-            write_file(dst, data, *data_filled);
-            *data_filled = 0;
-        }
-
-         memcpy(data + *data_filled, data_buff, databuff_size);
-         *data_filled += databuff_size;
-
-        cout << "data_filled: " << *data_filled << endl;
-        if(end){
-            write_file(dst, data, *data_filled);
-            cout << "Received File in " << num_packets_recv << " packets. Closing" << endl;
-            file_end = true;
-        }
-    }
-    dst.close();
     return total_bytes_recv;
 }
 
