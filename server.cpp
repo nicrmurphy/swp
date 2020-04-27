@@ -161,18 +161,37 @@ void create_socket() {
 }
 
 /**
+ * Write the contents in data buffer to output file
+ */
+void write_file(ofstream &dst, char *data, size_t data_size) {
+    // write packet contents to file
+    if (dst.is_open()) {
+        dst.write(data, data_size);
+        cout << "wrote " << data_size << " bytes to file." << endl;
+        dst.seekp(0, ios::end);
+    }
+}
+
+void check_buffer(ofstream &dst, char *data, size_t *data_filled, int databuff_size) {
+    if (*data_filled + databuff_size > MAX_DATA_SIZE*8) {
+        write_file(dst, data, *data_filled);
+        *data_filled = 0;
+    }
+}
+
+/**
  * Transfer a file using sliding window.
  */
 int window_recv_file(char *data, size_t *data_filled) {
-
-    int window_size = 5;
+    ofstream dst("dst");
+    int window_size = 8;
     bool gbn = true;
     //Recv window will always be 1 with GBN
     if(gbn){
         window_size = 1;
     }
     //Seq_size must be the same as in client
-    int seq_size = 10;
+    int seq_size = 32;
     //Used to record the size of each packet. 0 if the window is ready to be filled
     int recv_size[seq_size];
     char window[seq_size][MAX_DATA_SIZE];
@@ -244,6 +263,7 @@ int window_recv_file(char *data, size_t *data_filled) {
                     for (int i = 0; i < lw; i++){
                         if(!end && recv_size[i] ){
                             //cout << "Writing " << "tp2 " << i << endl; //debug
+                            check_buffer(dst, data, data_filled, databuff_size);
                             memcpy(data + *data_filled, window[i], recv_size[i]);
                             *data_filled += MAX_DATA_SIZE;
                             // zero out the received array
@@ -256,6 +276,7 @@ int window_recv_file(char *data, size_t *data_filled) {
                     for (int i = rw + 1; i < seq_size; i++){
                         if(!end && recv_size[i]){
                             //cout << "Writing " << "tp2 " << i << endl; //debug
+                            check_buffer(dst, data, data_filled, databuff_size);
                             memcpy(data + *data_filled, window[i], recv_size[i]);
                             *data_filled += MAX_DATA_SIZE;
                             recv_size[i] = 0;
@@ -283,6 +304,7 @@ int window_recv_file(char *data, size_t *data_filled) {
             {   
                 if(recv_size[i]){
                     //cout << "Writing " << "tp3 " << i << endl; //debug
+                    check_buffer(dst, data, data_filled, databuff_size);
                     memcpy(data + *data_filled, window[i], recv_size[i]);
                     *data_filled += MAX_DATA_SIZE;
                 }
@@ -290,13 +312,14 @@ int window_recv_file(char *data, size_t *data_filled) {
             // fill in the last packet into data
             if(recv_size[seq_num]){
                 //cout << "Writing " << "tp4 " << last_seq_num << endl; //debug
-                 memcpy(data + *data_filled, window[last_seq_num], end_packet_size);
+                check_buffer(dst, data, data_filled, databuff_size);
+                memcpy(data + *data_filled, window[last_seq_num], end_packet_size);
                 *data_filled += end_packet_size;
             }
-
+            write_file(dst, data, *data_filled);    // write remainder of buffer to file
             cout << "Received File in " << num_packets_recv << " packets. Closing" << endl;
             file_end = true;
-            
+            dst.close();
         }
     }
     return total_bytes_recv;
@@ -306,6 +329,7 @@ int window_recv_file(char *data, size_t *data_filled) {
  * Returns total bytes received
  */
 int recv_file(char *data, size_t *data_filled) {
+    ofstream dst("dst");
     sockaddr_storage client;
     socklen_t addr_len = sizeof client;
     char frame[MAX_FRAME_SIZE];
@@ -335,20 +359,22 @@ int recv_file(char *data, size_t *data_filled) {
         // send ack
         send_ack(sockfd, client, addr_len, seq_num);
 
-        if (*data_filled + databuff_size > MB_512) {
-            // TODO: write to file on new thread instead of killing the program
-            fprintf(stderr, "Buffer not big enough");
-            exit(1);
+        if (*data_filled + databuff_size > MAX_DATA_SIZE*8) {
+            write_file(dst, data, *data_filled);
+            *data_filled = 0;
         }
 
          memcpy(data + *data_filled, data_buff, databuff_size);
          *data_filled += databuff_size;
 
+        cout << "data_filled: " << *data_filled << endl;
         if(end){
+            write_file(dst, data, *data_filled);
             cout << "Received File in " << num_packets_recv << " packets. Closing" << endl;
             file_end = true;
         }
     }
+    dst.close();
     return total_bytes_recv;
 }
 
@@ -362,27 +388,18 @@ int main(int argc, char *argv[]) {
     //promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence);
     create_socket();
 
-    char *data = new char[MB_512];   // allocate 512 mb
+    char *data = new char[MAX_DATA_SIZE*8];
     size_t data_filled = 0;
 
     //int total_bytes_recv = recv_file(data, &data_filled);
     int total_bytes_recv = window_recv_file(data, &data_filled);
 
-
-    // write packet contents to file
-    ofstream dst ("dst");
-    if (dst.is_open()) {
-        cout << "data_filled: " << data_filled << endl;
-        dst.write(data, data_filled);
-        // dst.seekp(0, ios::end);
-    }
     delete[] data;
 
     // char client_addr[INET6_ADDRSTRLEN];
     // inet_ntop(client.ss_family, get_in_addr((struct sockaddr *) &client), client_addr, sizeof client_addr);
     cout << "received " << total_bytes_recv << " bytes\n";
 
-    dst.close();
     close(sockfd);
     return 0;
 }

@@ -17,8 +17,8 @@
 #include <mutex>
 
 #define PORT "9898"
-#define MAX_DATA_SIZE 65000
-#define MAX_FRAME_SIZE 65010 // to hold extra header data
+#define MAX_DATA_SIZE 64000
+#define MAX_FRAME_SIZE 64000 + 10 // to hold extra header data
 
 using namespace std;
 
@@ -239,7 +239,7 @@ void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
         if (data_pos >= data_len) break;
         send_window(servinfo, data);
         window_mutex.unlock();
-        if (gbn) this_thread::sleep_for(chrono::milliseconds(gbn_timeout));
+        /*if (gbn) */this_thread::sleep_for(chrono::milliseconds(gbn_timeout));
     }
     delete[] data;
     recv_thread.detach();
@@ -276,7 +276,7 @@ int main(int argc, char *argv[]) {
     acked = new bool[window_size];
     sr_timeouts = new time_t[window_size];
     gbn = true;
-    if (gbn) gbn_timeout = 10;    // in ms
+    /*if (gbn) */gbn_timeout = 10;    // in ms
 
     // prepare socket
     struct addrinfo hints, *servinfo, *clientinfo;
