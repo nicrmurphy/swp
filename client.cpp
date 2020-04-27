@@ -246,6 +246,10 @@ void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
 }
 
 void print_stats(clock_t start_time) {
+
+    //Throughput - # of packets * size of the packet * 8 / time
+    //Throughput - # of bits sent / time
+
     cout << "Number of original packets sent: " << num_packets_sent << endl;
     cout << "Number of retransmitted packets: " << num_packets_resent << endl;
     double elapsed_seconds = (clock() - start_time) / (double) CLOCKS_PER_SEC * 10;    // TODO: might be wrong

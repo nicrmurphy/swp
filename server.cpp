@@ -17,7 +17,6 @@
 #define PORT "9898"
 #define MAX_DATA_SIZE 65000
 #define MAX_FRAME_SIZE 65010 // to hold extra header data
-#define MB_512 536870912
 
 using namespace std;
 
@@ -250,7 +249,7 @@ int window_recv_file(char *data, size_t *data_filled) {
         }else{
             //cout << "Received exta packet " << seq_num << ", thowing." << endl;
         }
-
+        
         // shift the window if needed
         while (recv_size[lw]) {
                 send_ack(sockfd, client, addr_len, lw);
@@ -261,7 +260,7 @@ int window_recv_file(char *data, size_t *data_filled) {
                 //when the rw hits a maximum, write out all window data from 0 -> lw to the buffer
                 if(rw == seq_size - 1){
                     for (int i = 0; i < lw; i++){
-                        if(!end && recv_size[i] ){
+                         if(!end && recv_size[i] ){
                             //cout << "Writing " << "tp2 " << i << endl; //debug
                             check_buffer(dst, data, data_filled, databuff_size);
                             memcpy(data + *data_filled, window[i], recv_size[i]);
@@ -275,7 +274,7 @@ int window_recv_file(char *data, size_t *data_filled) {
                 if(lw == 0){
                     for (int i = rw + 1; i < seq_size; i++){
                         if(!end && recv_size[i]){
-                            //cout << "Writing " << "tp2 " << i << endl; //debug
+                             //cout << "Writing " << "tp2 " << i << endl; //debug
                             check_buffer(dst, data, data_filled, databuff_size);
                             memcpy(data + *data_filled, window[i], recv_size[i]);
                             *data_filled += MAX_DATA_SIZE;
@@ -285,20 +284,8 @@ int window_recv_file(char *data, size_t *data_filled) {
                 }
     }
 
-        if (*data_filled + databuff_size > MB_512) {
-            // TODO: write to file on new thread instead of killing the program
-            fprintf(stderr, "Buffer not big enough");
-            exit(1);
-        }
-        
-        // Because end can change if packets arrive out of order, keep track of found End
-        // if(end){
-        //     foundEnd = true;
-        //     end_packet_size = databuff_size;
-        // }
-       
         //write out ending data to the buffer
-        if(foundEnd && !inWindow(lw,rw,last_seq_num) && last_seq_num > 0){
+        if(foundEnd && !inWindow(lw,rw,last_seq_num) && last_seq_num >= 0){
             // write out the data in the window to the buffer
             for (int i = 0; i < last_seq_num; i++)
             {   
