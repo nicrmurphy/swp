@@ -21,15 +21,6 @@
 
 using namespace std;
 
-int window_size = 5;
-int seq_size = 10;
-bool received[10];
-char window[10][MAX_DATA_SIZE];
-int lw = 0;
-int rw = window_size - 1;
-
-int last_seq_num = -1;
-
 int sockfd;
 
 // get sockaddr, IPv4 or IPv6:
@@ -112,55 +103,18 @@ void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, in
     //END USER INPUT
 }
 
-// LAR -> last ack received
-// LFR -> last frame received
-// LFS -> last frame sent
-// VAR -> expected frame
-// LW -> left wall
-// RW -> right wall
-// SWS -> sender window size
-// RWS -> receiver window wise
+/**
+ * Returns true if the index is within the current window.
+ */
+bool inWindow(int lw, int rw, int index){
 
-void gbn(){
-    //Receive Packets
-    //If packet is expected packet
-        //Accept packet
-        //send ack for Sequence number
-        //Seq num ++
-        //If seq num > Smax
-            //seq num = 0 or seq min
-    //If packet is not expected packet AND seq num > 0
-        //send ack for previously received packet
-    //Else
-        //If lastAck = null
-            //Dont send anything, waiting for the first packet
+    if(lw == rw){
+        return (lw == index);
+    }else{
 
-}
-
-void sr(){
-    //Receive packet n
-    // if n is in [sb, sb + windowsize -1]
-        // send ack(n)
-        //if n is not the smallest unreceived 
-            // buffer n
-    //else
-        //deliver n and following in order buffered until next unreceived packet
-}
-
-bool inWindow(int index){
     return (index >= lw && index <= rw) || (index >= lw && rw <= lw) || (index <= rw && rw <= lw);
-
-}
-
-void shift_window(){
-    while (received[lw] == true) {
-                lw = (lw + 1) % seq_size;
-                rw = (rw + 1) % seq_size;
-                cout << "Window: [" << lw << " to " << rw << "]" << endl;
-
     }
 }
-
 
 /**
  * Sets global variable sockfd to valid socket file descriptor
@@ -206,21 +160,54 @@ void create_socket() {
     printf("listening on port %s...\n", PORT);
 }
 
-/*
-*   Transfer a file using sliding window.
-    Currently only works if the total number of packets <= max_seq_num.
-    TODO: add writing out and clearing the window so it can slide back to zero, overwritting the original data
-*/
+/**
+ * Write the contents in data buffer to output file
+ */
+void write_file(ofstream &dst, char *data, size_t data_size) {
+    // write packet contents to file
+    if (dst.is_open()) {
+        dst.write(data, data_size);
+        cout << "wrote " << data_size << " bytes to file." << endl;
+        dst.seekp(0, ios::end);
+    }
+}
+
+void check_buffer(ofstream &dst, char *data, size_t *data_filled, int databuff_size) {
+    if (*data_filled + databuff_size > MAX_DATA_SIZE*8) {
+        write_file(dst, data, *data_filled);
+        *data_filled = 0;
+    }
+}
+
+/**
+ * Transfer a file using sliding window.
+ */
 int window_recv_file(char *data, size_t *data_filled) {
+    ofstream dst("dst");
+    int window_size = 8;
+    bool gbn = true;
+    //Recv window will always be 1 with GBN
+    if(gbn){
+        window_size = 1;
+    }
+    //Seq_size must be the same as in client
+    int seq_size = 32;
+    //Used to record the size of each packet. 0 if the window is ready to be filled
+    int recv_size[seq_size];
+    char window[seq_size][MAX_DATA_SIZE];
+    int lw = 0;
+    int rw = window_size - 1;
+    int last_seq_num = -1;
+
     sockaddr_storage client;
     socklen_t addr_len = sizeof client;
     char frame[MAX_FRAME_SIZE];
     char data_buff[MAX_DATA_SIZE];
     memset(data_buff, '\0', MAX_DATA_SIZE);
-
-    for (size_t i = 0; i < seq_size; i++)
+    
+    for (int i = 0; i < seq_size; i++)
     {
-        received[i] = false;
+        recv_size[i] = 0;
     }
     
     int bytes_recv;
@@ -234,6 +221,7 @@ int window_recv_file(char *data, size_t *data_filled) {
     int total_bytes_recv = 0;
     int num_packets_recv = 0;
     while (!file_end) {
+
         // sleep until receives next packet
         if ((bytes_recv = recvfrom(sockfd, frame, MAX_FRAME_SIZE, 0, (struct sockaddr *) &client, &addr_len)) == -1) {
             perror("recvfrom");
@@ -245,29 +233,57 @@ int window_recv_file(char *data, size_t *data_filled) {
         if(frame_error){
             cout << "There has been a frame error!";
         }
-        //if we have found the ending packet, record it's sequence number
-        if(end){
-            last_seq_num = seq_num;
-        }
-        cout << end << endl;
-        //ony copy data into the window if it has not been received yet and it's crc passes
-        if(received[seq_num] == false && !frame_error){
-            // does the memory need to be cleared whenn databuff_size < MAX_DATA_SIZE?
+        
+        //only copy data into the window if it has not been received yet and it's crc passes
+        if(!frame_error && !recv_size[seq_num]&& inWindow(lw,rw,seq_num)){
             memcpy(window[seq_num], data_buff, databuff_size);
-            received[seq_num] = true;
+            recv_size[seq_num] = databuff_size;
             total_bytes_recv += bytes_recv;
             num_packets_recv++;
+            //record the last sequence num
+            if(end){
+                last_seq_num = seq_num;
+                foundEnd = true;
+                end_packet_size = databuff_size;
+            }
             cout << "received packet " << (int) seq_num << "; data: "<<databuff_size<<"; " << bytes_recv << " bytes (total: " << total_bytes_recv << ")\n";     // debug
-
-            // send ack
-            send_ack(sockfd, client, addr_len, seq_num);
         }else{
-            cout << "Received exta packet " << seq_num << ", thowing." << endl;
+            //cout << "Received exta packet " << seq_num << ", thowing." << endl;
         }
 
         // shift the window if needed
-        shift_window();
+        while (recv_size[lw]) {
+                send_ack(sockfd, client, addr_len, lw);
 
+                lw = (lw + 1) % seq_size;
+                rw = (rw + 1) % seq_size;
+                //cout << "Window: [" << lw << " to " << rw << "]" << endl;
+                //when the rw hits a maximum, write out all window data from 0 -> lw to the buffer
+                if(rw == seq_size - 1){
+                    for (int i = 0; i < lw; i++){
+                        if(!end && recv_size[i] ){
+                            //cout << "Writing " << "tp2 " << i << endl; //debug
+                            check_buffer(dst, data, data_filled, databuff_size);
+                            memcpy(data + *data_filled, window[i], recv_size[i]);
+                            *data_filled += MAX_DATA_SIZE;
+                            // zero out the received array
+                            recv_size[i] = 0;
+                        }
+                    }
+                }
+                //If lw is 0, write out all data from rw + 1 to the end into the buffer
+                if(lw == 0){
+                    for (int i = rw + 1; i < seq_size; i++){
+                        if(!end && recv_size[i]){
+                            //cout << "Writing " << "tp2 " << i << endl; //debug
+                            check_buffer(dst, data, data_filled, databuff_size);
+                            memcpy(data + *data_filled, window[i], recv_size[i]);
+                            *data_filled += MAX_DATA_SIZE;
+                            recv_size[i] = 0;
+                        }
+                    }
+                }
+    }
 
         if (*data_filled + databuff_size > MB_512) {
             // TODO: write to file on new thread instead of killing the program
@@ -275,92 +291,35 @@ int window_recv_file(char *data, size_t *data_filled) {
             exit(1);
         }
         
-        // TODO: write out data when rw reaches a max or lw is a minimum
-        if(rw == seq_size - 1){
-            // write out from 0 - lw
-            // set received 0 - lw to false
-        }
-        if(lw == 0){
-            // write out from rw +1 to seq_size -1
-            // set received rw +1 to seq_size -1 to false
-        }
-
         // Because end can change if packets arrive out of order, keep track of found End
-        if(end){
-            foundEnd = true;
-            end_packet_size = databuff_size;
-        }
+        // if(end){
+        //     foundEnd = true;
+        //     end_packet_size = databuff_size;
+        // }
        
-        // if the last packed has been sent and all before have been sent,
-        //TODO: this should be changed when we get complete window shifting to work.
-        // Should change to loop through the entire window and only add data if received[i] is true,
-        // so we can avoid duplicate values.
-        if(foundEnd && !inWindow(last_seq_num)){
+        //write out ending data to the buffer
+        if(foundEnd && !inWindow(lw,rw,last_seq_num) && last_seq_num > 0){
             // write out the data in the window to the buffer
-            for (size_t i = 0; i < last_seq_num; i++)
-            {
-                memcpy(data + *data_filled, window[i], MAX_DATA_SIZE);
-                *data_filled += MAX_DATA_SIZE;
-            }
+            for (int i = 0; i < last_seq_num; i++)
+            {   
+                if(recv_size[i]){
+                    //cout << "Writing " << "tp3 " << i << endl; //debug
+                    check_buffer(dst, data, data_filled, databuff_size);
+                    memcpy(data + *data_filled, window[i], recv_size[i]);
+                    *data_filled += MAX_DATA_SIZE;
+                }
+            } 
             // fill in the last packet into data
-            memcpy(data + *data_filled, window[last_seq_num], end_packet_size);
-            *data_filled += end_packet_size;
-
+            if(recv_size[seq_num]){
+                //cout << "Writing " << "tp4 " << last_seq_num << endl; //debug
+                check_buffer(dst, data, data_filled, databuff_size);
+                memcpy(data + *data_filled, window[last_seq_num], end_packet_size);
+                *data_filled += end_packet_size;
+            }
+            write_file(dst, data, *data_filled);    // write remainder of buffer to file
             cout << "Received File in " << num_packets_recv << " packets. Closing" << endl;
             file_end = true;
-            
-        }
-        //  memcpy(data + *data_filled, data_buff, databuff_size);
-        //  *data_filled += databuff_size;
-    }
-    return total_bytes_recv;
-}
-
-/**
- * Returns total bytes received
- */
-int recv_file(char *data, size_t *data_filled) {
-    sockaddr_storage client;
-    socklen_t addr_len = sizeof client;
-    char frame[MAX_FRAME_SIZE];
-    char data_buff[MAX_DATA_SIZE];
-    int bytes_recv;
-    int seq_num;
-    int frame_error;
-    int databuff_size;
-    bool end;
-    bool file_end = false;
-    int total_bytes_recv = 0;
-    int num_packets_recv = 0;
-    while (!file_end) {
-        // sleep until receives next packet
-        if ((bytes_recv = recvfrom(sockfd, frame, MAX_FRAME_SIZE, 0, (struct sockaddr *) &client, &addr_len)) == -1) {
-            perror("recvfrom");
-            continue;
-        }
-        frame_error = unpack_data(frame, &seq_num, data_buff, &databuff_size, &end);
-        if(frame_error){
-            cout << "There has been a frame error!";
-        }
-        total_bytes_recv += bytes_recv;
-        num_packets_recv++;
-        cout << "received packet " << (int) seq_num << "; data: "<<databuff_size<<"; " << bytes_recv << " bytes (total: " << total_bytes_recv << ")\n";     // debug
-
-        // send ack
-        send_ack(sockfd, client, addr_len, seq_num);
-
-        if (*data_filled + databuff_size > MB_512) {
-            // TODO: write to file on new thread instead of killing the program
-            fprintf(stderr, "Buffer not big enough");
-            exit(1);
-        }
-
-         memcpy(data + *data_filled, data_buff, databuff_size);
-         *data_filled += databuff_size;
-
-        if(end){
-            cout << "Received File in " << num_packets_recv << " packets. Closing" << endl;
-            file_end = true;
+            dst.close();
         }
     }
     return total_bytes_recv;
@@ -376,27 +335,18 @@ int main(int argc, char *argv[]) {
     //promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence);
     create_socket();
 
-    char *data = new char[MB_512];   // allocate 512 mb
+    char *data = new char[MAX_DATA_SIZE*8];
     size_t data_filled = 0;
 
-    int total_bytes_recv = recv_file(data, &data_filled);
-    // int total_bytes_recv = window_recv_file(data, &data_filled);
+    //int total_bytes_recv = recv_file(data, &data_filled);
+    int total_bytes_recv = window_recv_file(data, &data_filled);
 
-
-    // write packet contents to file
-    ofstream dst ("dst");
-    if (dst.is_open()) {
-        cout << "data_filled: " << data_filled << endl;
-        dst.write(data, data_filled);
-        // dst.seekp(0, ios::end);
-    }
     delete[] data;
 
     // char client_addr[INET6_ADDRSTRLEN];
     // inet_ntop(client.ss_family, get_in_addr((struct sockaddr *) &client), client_addr, sizeof client_addr);
     cout << "received " << total_bytes_recv << " bytes\n";
 
-    dst.close();
     close(sockfd);
     return 0;
 }
