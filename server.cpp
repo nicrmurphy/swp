@@ -15,8 +15,8 @@
 
 #define HOST NULL   // NULL = localhost
 #define PORT "9898"
-//#define MAX_DATA_SIZE 65000
-//#define MAX_FRAME_SIZE 65010 // to hold extra header data
+
+#define DEBUG
 
 using namespace std;
 
@@ -32,8 +32,6 @@ int last_seq_num = -1;
 
 int num_packets_recv;
 int num_retransmitted_packets;
-
-
 
 int sockfd;
 
@@ -51,7 +49,9 @@ int send_ack(const int sockfd, sockaddr_storage client, socklen_t addr_len, cons
         perror("sendto");
         exit(1);
     }
+    #ifdef DEBUG
     cout << "ack " << (int) seq_num << " sent\n";
+    #endif  
     return 0;
 }
 
@@ -129,6 +129,9 @@ bool inWindow(int lw, int rw, int index){
     }
 }
 
+/**
+ * Prints current window
+ */
 void print_window() {
     cout << "Current window = [";
     for (long i = lw % seq_size; i != rw + 1; i++) {
@@ -239,7 +242,6 @@ int window_recv_file(char *data, size_t *data_filled) {
     num_packets_recv = 0;
     num_retransmitted_packets = 0;
     while (!file_end) {
-
         // sleep until receives next packet
         if ((bytes_recv = recvfrom(sockfd, frame, MAX_FRAME_SIZE, 0, (struct sockaddr *) &client, &addr_len)) == -1) {
             perror("recvfrom");
@@ -248,15 +250,15 @@ int window_recv_file(char *data, size_t *data_filled) {
 
         //unpack the sent frame
         frame_error = unpack_data(frame, &seq_num, data_buff, &databuff_size, &end);
+        #ifdef DEBUG
         cout << "Packet " << seq_num << " received" << endl;
         if(frame_error){
             cout << "Checksum Failed" << endl;        
         }else{
             cout << "Checksum OK" << endl;
         }
+        #endif
         
-        
-
         //only copy data into the window if it has not been received yet and it's crc passes
         if(!frame_error && !recv_size[seq_num]&& inWindow(lw,rw,seq_num)){
             memcpy(window[seq_num], data_buff, databuff_size);
@@ -268,11 +270,9 @@ int window_recv_file(char *data, size_t *data_filled) {
                 last_seq_num = seq_num;
                 foundEnd = true;
             }
-            //cout << "Checksum OK " << endl;
            // cout << "received packet " << (int) seq_num << "; data: "<<databuff_size<<"; " << bytes_recv << " bytes (total: " << total_bytes_recv << ")\n";     // debug
         }else{
             num_retransmitted_packets++;
-            //cout << "Received exta packet " << seq_num << ", thowing." << endl;
         }
         
         // shift the window if needed
@@ -281,7 +281,9 @@ int window_recv_file(char *data, size_t *data_filled) {
 
                 lw = (lw + 1) % seq_size;
                 rw = (rw + 1) % seq_size;
+                #ifdef DEBUG
                 print_window();
+                #endif
                 //write data to the buffer when rw is max or lw is min
                 if(!end && (rw == seq_size - 1 || lw == 0)){
                      for (int i = 0; i < seq_size; i++){
