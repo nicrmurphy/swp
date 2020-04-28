@@ -12,13 +12,31 @@
 #include <fstream>
 #include <chrono>
 #include <ctime>
-#include <sstream>
+#include <thread>
+#include <time.h>
+#include <mutex>
 
 #define PORT "9898"
-#define MAX_DATA_SIZE 1024 * 9  // 9 kb
-#define MAX_FRAME_SIZE 1024 * 9 + 10 // to hold extra header data
+#define MAX_DATA_SIZE 65000
+#define MAX_FRAME_SIZE 65010 // to hold extra header data
 
 using namespace std;
+
+int sockfd;
+char *host;
+char *filepath;
+int window_size;
+int seq_size;
+bool gbn;
+
+bool *acked;
+time_t gbn_timeout;
+time_t *sr_timeouts;
+long data_pos = 0;  // holds how many consecutive bytes have been acked
+long data_len;      // size of entire data buffer
+int num_packets_sent = 0;
+int num_packets_resent = 0;
+mutex window_mutex;
 
 char checksum(char *frame, int count) {
     u_long sum = 0;
@@ -44,50 +62,43 @@ int pack_data(char* frame, int seq_num, char* buff, int buff_size, bool end){
     return buff_size + (int)10;
 }
 
+void print_window() {
+    cout << "Current window = [";
+    for (long i = data_pos; i < data_pos + (window_size * MAX_DATA_SIZE); i += MAX_DATA_SIZE) {
+        long seq_num = (i / MAX_DATA_SIZE) % seq_size;
+        cout << (i != data_pos ? ", " : "") << seq_num;
+    }
+    cout << "]" << endl;
+}
+
+/**
+ * Prints ack mask array to console. Used in debugging.
+ */
+void print_acked() {
+    cout << "         Acked = [";
+    for (long i = data_pos; i < data_pos + (window_size * MAX_DATA_SIZE); i += MAX_DATA_SIZE) {
+        long seq_num = (i / MAX_DATA_SIZE) % seq_size;
+        cout << (i != data_pos ? ", " : "") << (seq_num > 9 ? " " : "") << acked[seq_num % window_size];
+    }
+    cout << "]" << endl;
+}
+
 void generateErrors(){}
 void promptErrors(){}
 
-void promptUserInput(string* hostIP, string* protocol, int* packetSize, int* timeoutInterval, int* sizeOfWindow, int* rangeOfSequence){
+void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, int* sizeOfWindow, int* rangeOfSequence){
     //START USER INPUT
     
-    string input;
-
-    cout << "Host IP";
-    getline(cin, input);
-    if(!input.empty()){
-        stringstream stream(input);
-        stream >> *hostIP;
-    }
     cout << "Type of protocol (GBN or SR): ";
-    getline(cin, input);
-    if(!input.empty()){
-        stringstream stream(input);
-        stream >> *protocol;
-    }
-    cout << "Packet Size (kB) (32kB default): ";
-    getline(cin, input);
-    if(!input.empty()){
-        istringstream stream(input);
-        stream >> *packetSize;
-    }
+    cin >> *protocol;
+    cout << "Packet Size (kB): ";
+    cin >> *packetSize;
     cout << "Timeout interval (0 for ping calculated): ";
-    getline(cin, input);
-    if(!input.empty()){
-        istringstream stream(input);
-        stream >> *timeoutInterval;
-    }
-    cout << "Size of sliding window (5 default): ";
-    getline(cin, input);
-    if(!input.empty()){
-        istringstream stream(input);
-        stream >> *sizeOfWindow;
-    }
-    cout << "Range of sequence numbers (64 default): ";
-    getline(cin, input);
-    if(!input.empty()){
-        istringstream stream(input);
-        stream >> *rangeOfSequence;
-    }
+    cin >> *timeoutInterval;
+    cout << "Size of sliding window: ";
+    cin >> *sizeOfWindow;
+    cout << "Range of sequence numbers: ";
+    cin >> *rangeOfSequence;
 
     string userInput;
     cout << "Situational Errors" << endl;
@@ -105,86 +116,156 @@ void promptUserInput(string* hostIP, string* protocol, int* packetSize, int* tim
     //END USER INPUT
 }
 
-// LAR -> last ack received
-// LFR -> last frame received
-// LFS -> last frame sent
-// VAR -> expected frame
-// LW -> left wall
-// RW -> right wall
-// SWS -> sender window size
-// RWS -> receiver window wise
-
-int send_packet(const int seq_num) {
-
-    return 0;
-}
-
-int recv_packet() {
-
-    return 0;
-}
-
-int gbn() {
-    int total_packets = 15;
-    size_t window_size = 10;
-    char window[] = new char[window_size];
-    // time_t timers[] = new time_t[total_packets];
-    int lw = 0;
-    int rw = window_size;
-    int lar;    // last ack received
-    bool done = false;
-    
-    while (!done) {
-        // send packets in window
-        for (int i = 0; i < window_size; i++) {
-            send_packet(i);
-            // timers[i] = chrono::system_clock::now();
-        }
-
-        // if something is able to be received (poll? , select?)
-            // received ack(n)
-            ar = recv_packet();
-            // check if n is smallest un-acked packet
-           if (lar >= lw) {
-                lw = lar + 1;
-                rw = lw + window_size;
-            }
-
-        // set done = true when received all acks (packet termination flag)
-        if (lar == total_packets - 1) done = true;
+/**
+ * Returns number of bytes sent
+ */
+int send_packet(addrinfo *servinfo, const int seq_num, char *data, size_t data_size, bool end) {
+    char frame[MAX_FRAME_SIZE];
+    int bytes_sent;
+    int frame_size = pack_data(frame, seq_num, data, data_size, end);
+    if ((bytes_sent = sendto(sockfd, frame, frame_size, 0, servinfo->ai_addr, servinfo->ai_addrlen)) == -1) {
+        perror("sendto");
+        return 1;
     }
-    delete[] window; 
-    // delete[] timers; 
 
-    return 0;
+    return bytes_sent;
 }
 
-int sr(){
-    // send packet Sn
+void recv_ack(addrinfo *server, const int num_acks) {
+    socklen_t addr_len = sizeof server;
+    // sleep until receives next packet
+    uint8_t ack;
+    bool done = false;
+    while (!done) {
+        if (recvfrom(sockfd, &ack, 1, 0, (struct sockaddr *) server, &addr_len) == -1) {
+            perror("recvfrom");
+            exit(1);
+        }
+        // TODO: improve situational errors
+        // if ((clock() & 2) == 0) continue;   // if system time is even number, drop ack
+        printf("Ack %d received\n", ack);
 
-    // start timeout timer for Sn
+        // count ack and slide window
+        window_mutex.lock();
+        // gbn always slides window to lar within window; sr only slides if lw is acked
+        acked[ack % window_size] = true;
+        int lw = (data_pos / MAX_DATA_SIZE) % window_size;
+        // int rw = (lw + window_size) % window_size;
+        int a = data_pos / MAX_DATA_SIZE;
+        while (gbn && a <= ack) {
+            // cout << (a % seq_size) << endl;  // debug
+            acked[a % seq_size] = true;     // ack all packets < lar
+            a++;
+        }
+        while (acked[lw]) {
+            data_pos += MAX_DATA_SIZE;
+            if (data_pos >= data_len) {
+                window_mutex.unlock();
+                cout << "recv_ack thread complete \n";
+                return;
+            }
+            acked[lw] = false;
+            lw = (data_pos / MAX_DATA_SIZE) % window_size;
+        }
+        print_window();
+        // print_acked();  // debug
+        window_mutex.unlock();
+    }
+    cout << "recv_ack thread complete \n";
+}
 
-    //if timeout,
-        //Send packet again,
-        //restart timeout timer
+/**
+ * Send all the packets in the window
+ */
+void send_window(addrinfo *servinfo, char *data) {
+    long rw = data_pos + (window_size * MAX_DATA_SIZE);
+    bool end = false;
+    if (rw >= data_len) {
+        end = true;
+        rw = data_len;
+    }
+    long leftover = data_len % MAX_DATA_SIZE;
+    long packet_data_size = MAX_DATA_SIZE;
+    // TODO: gbn sends all always; sr only sends non-acked packets
+    for (long i = data_pos; i < rw; i += MAX_DATA_SIZE) {
+        long seq_num = (i / MAX_DATA_SIZE) % seq_size;
+        // cout << "end: " << end << ", leftover: " << leftover << ", i: " << i << ", rw: " << rw << endl;
+        if (end && leftover && i >= rw - leftover) packet_data_size = leftover;
+        char packet_data[packet_data_size];
+        // cout << "data_len: " << data_len << " accessing data from " << i << " to " << i + packet_data_size << endl; 
+        if (i + packet_data_size > data_len) i = data_len - packet_data_size;
+        memcpy(packet_data, data + i, packet_data_size);
+        /*int bytes_sent = */send_packet(servinfo, seq_num, packet_data, packet_data_size, end && i == rw - packet_data_size);
+        cout << "Packet " << seq_num << " sent" << endl;//"; " << bytes_sent << " bytes to " << host << "\n";
+    }
+}
 
-    // if get ack sb 
-        // mark packet as received 
-        // if the seqence number is the smallest unacked packet
-            //shift sb to the next unacked packet
+/**
+ * read in entire file contents to data array
+ */
+void read_file(char **data, long *data_len) {
+    ifstream src(filepath, ios::in | ios::binary | ios::ate);
+    if (src.is_open()) {
+        *data_len = src.tellg();     // fill data_len with size of file in bytes
+        *data = new char[*data_len];  // allocate memory for data memory block
+        src.seekg(0, ios::beg);     // change stream pointer location to beginning of file
+        src.read(*data, *data_len);   // read in file contents to data
+        src.close();                // close iostream
+    } else {
+        fprintf(stderr, "failed to read file %s\n", filepath);
+        exit(1);
+    }
+}
 
-    return 0;
+/**
+ * Transfer a file using sliding window.
+ */
+void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
+    // read in file 
+    char *data;
+    read_file(&data, &data_len);
+
+    // determine the number of packets required for the transfer
+    int numBlocks = data_len / (MAX_DATA_SIZE);
+    // determine size of last packet
+    int leftover = data_len % (MAX_DATA_SIZE);
+    if (leftover) numBlocks++;
+    num_packets_sent = numBlocks;
+
+    thread recv_thread(recv_ack, clientinfo, numBlocks);
+    bool done = false;
+    while (!done) {
+        window_mutex.lock();
+        if (data_pos >= data_len) break;
+        send_window(servinfo, data);
+        window_mutex.unlock();
+        /*if (gbn) */this_thread::sleep_for(chrono::milliseconds(gbn_timeout));
+    }
+    delete[] data;
+    recv_thread.detach();
+}
+
+void print_stats(clock_t start_time) {
+
+    //Throughput - # of packets * size of the packet * 8 / time
+    //Throughput - # of bits sent / time
+
+    cout << "Number of original packets sent: " << num_packets_sent << endl;
+    cout << "Number of retransmitted packets: " << num_packets_resent << endl;
+    double elapsed_seconds = (clock() - start_time) / (double) CLOCKS_PER_SEC * 10;    // TODO: might be wrong
+    cout << "Total elapsed time: " << (double) elapsed_seconds << endl;
+    cout << "Total throughput (Mbps): " << data_len * 8 / elapsed_seconds / 1048576 << endl;
+    cout << "Effective throughput: " << endl;
 }
 
 int main(int argc, char *argv[]) {
-    string hostIP;
-    string protocol;
-    int packetSize = 32000;
-    int timeoutInterval;
-    int sizeOfWindow = 5;
-    int rangeOfSequence = 64;
+    // string protocol;
+    // int packetSize;
+    // int timeoutInterval;
+    // int sizeOfWindow;
+    // int rangeOfSequence;
     
-    //  promptUserInput(&hostIP, &protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence);
+    //  promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence);
 
     // TODO: replace command line arguments with prompts
     if (argc != 3) {
@@ -192,36 +273,19 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "ex: %s thing2 src\n", argv[0]);
         exit(1);
     }
-    char *host = argv[1];
-    char *filepath = argv[2];
+    host = argv[1];
+    filepath = argv[2];
+    window_size = 8;
+    seq_size = 32;
+    acked = new bool[window_size];
+    sr_timeouts = new time_t[window_size];
+    gbn = true;
+    /*if (gbn) */gbn_timeout = 10;    // in ms
 
-
-    // read in file 
-    char data[MAX_DATA_SIZE];
-    long data_len;
-    ifstream src(filepath, ios::in | ios::binary | ios::ate);
-    if (src.is_open()) {
-        data_len = src.tellg();     // fill data_len with size of file in bytes
-        //data = new char[data_len];  // allocate memory for data memory block
-        src.seekg(0, ios::beg);     // change stream pointer location to beginning of file
-       // src.read(data, data_len);   // read in file contents to data
-       // src.close();                // close iostream
-    } else {
-        fprintf(stderr, "failed to read file %s\n", filepath);
-        exit(1);
-    }
-
-    // determine the number of packets required for the transfer
-    int numBlocks = data_len / (MAX_DATA_SIZE);
-    // determine size of last packet
-    int leftover = data_len % (MAX_DATA_SIZE);
-    if(leftover){
-        numBlocks++;
-    }
     // prepare socket
-    struct addrinfo hints, *servinfo;
+    struct addrinfo hints, *servinfo, *clientinfo;
     memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC;
+    hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_DGRAM;
 
     // fill servinfo with addrinfo
@@ -232,18 +296,33 @@ int main(int argc, char *argv[]) {
     }
     // servinfo now points to a linked list of 1 or more struct addrinfos
 
+    // fill clientinfo with addrinfo
+    hints.ai_flags = AI_PASSIVE;
+    if ((status = getaddrinfo(NULL, "7819", &hints, &clientinfo)) != 0) {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
+        exit(1);
+    }
+    // clientinfo now points to a linked list of 1 or more struct addrinfos
+
     // loop through all the results and make a socket
     struct addrinfo *node;
-    int sockfd;
-    for (node = servinfo; node != NULL; node = node->ai_next) {
+    for (node = clientinfo; node != NULL; node = node->ai_next) {
         // attempt socket syscall
         if ((sockfd = socket(node->ai_family, node->ai_socktype, node->ai_protocol)) == -1) {
             perror("socket");
             continue;
         }
+
+        // if successful, bind socket
+        if (::bind(sockfd, node->ai_addr, node->ai_addrlen) == -1) {
+            close(sockfd);
+            perror("bind");
+            continue;
+        }
+
         break;
     }
-    freeaddrinfo(servinfo); // free the linked list
+    freeaddrinfo(clientinfo);
 
     // if successful, node now points to the info of the successfully created socket
     if (node == NULL) {
@@ -251,34 +330,16 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    // break up file data into packets and send packets
-    int bytes_sent = 0, total = 0;
-    char frame[MAX_FRAME_SIZE];
-    int frame_size;
-    int end = false;
-    // read each section of data from the file, package, and send them 
-    for (int i = 0; i < numBlocks; i++)
-    {
-        
-        int data_size = MAX_DATA_SIZE;
-        if(i == numBlocks - 1){
-            data_size = leftover;
-            end = true;
-        } 
-        // read the data from the file. This should probably later be done in larger chunks
-        src.read(data,data_size);
-        frame_size = pack_data(frame,0,data, data_size, end);
-        if ((bytes_sent = sendto(sockfd, frame, frame_size, 0, node->ai_addr, node->ai_addrlen)) == -1) {
-            perror("sendto");
-            exit(1);
-        }
-        total += bytes_sent;
-        cout << "sent " << bytes_sent << " (" << total << "/" << data_len << ") bytes to " << host << "\n";
-    }
-    cout << "sent " << total << " bytes to " << host << "\n";
-    src.close();
+    // start timer
+    clock_t start_time = clock();
+    window_transfer_file(node, servinfo);
+    print_stats(start_time);
 
     cout << endl;
+    cout << "main thread complete\n";
+    delete[] acked;
+    delete[] sr_timeouts;
     close(sockfd);
+    freeaddrinfo(servinfo);
     return 0;
 }

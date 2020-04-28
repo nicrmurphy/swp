@@ -7,17 +7,17 @@ Implementation of Sliding Window Protocols
     - [x] Simple communication (strings)
     - [x] FTP for any (one) client to any (one) server
     - [ ] _Optional: FTP for multiple clients to multiple servers_
-  - [ ] Error Detection
-  - [ ] Dynamic packet size
+  - [x] Error Detection
+  - [x] Dynamic packet size
   - [ ] Dynamic timeout interval
-  - [ ] Dynamic window size
-  - [ ] Dynamic range of sequence numbers
+  - [x] Dynamic window size
+  - [x] Dynamic range of sequence numbers
   - [ ] Simulate packet loss
     - [ ] Randomly generated
     - [ ] User-defined
 
 - [ ] Helpers
-  - [ ] Checksum
+  - [x] Checksum
   - [x] Create frame
   - [x] Create ack
     - [ ] ~~Create nak~~
@@ -41,7 +41,8 @@ Implementation of Sliding Window Protocols
     - [ ] Console output
       - [ ] Packets (sequence number) received
       - [ ] Damaged packet(s) (checksum error should match corresponding damaged packet from sender window)
-      - [ ] Packets in the current receiver window. o Packets (duplicated) that are discarded
+      - [ ] Packets in the current receiver window.
+      - [ ] Packets (duplicated) that are discarded
       - [ ] Ack packets that are sent
       - [ ] Frames arriving out of order should be re-sequenced before assembly
   - [ ] Client
@@ -54,11 +55,11 @@ Implementation of Sliding Window Protocols
       - [x] Range of Sequence Numbers
       - [ ] Situational Errors (none, randomly generated, or user-specified, i.e., drop packets 2, 4, 5, lose acks 11, etc.)
     - [ ] Console output
-      - [ ] Packet sequence number of packet sent
+      - [x] Packet sequence number of packet sent
       - [ ] Packet (sequence number) that timed out
       - [ ] Packet that was re-transmitted
-      - [ ] All packets in the current window
-      - [ ] Acks received
+      - [x] All packets in the current window
+      - [x] Acks received
       - [ ] Which packets are damaged, .i.e., deliberately trigger a checksum error on the receiver side
 
 - [ ] Design document, describing and justifying design decisions
