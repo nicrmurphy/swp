@@ -344,6 +344,7 @@ int main(int argc, char *argv[]) {
     int total_bytes_recv = window_recv_file(data, &data_filled);
 
     delete[] data;
+    delete[] recv_size;
 
     // char client_addr[INET6_ADDRSTRLEN];
     // inet_ntop(client.ss_family, get_in_addr((struct sockaddr *) &client), client_addr, sizeof client_addr);
