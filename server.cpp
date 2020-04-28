@@ -30,6 +30,9 @@ int lw = 0;
 int rw;
 int last_seq_num = -1;
 
+int num_packets_recv;
+int num_retransmitted_packets;
+
 
 
 int sockfd;
@@ -126,6 +129,18 @@ bool inWindow(int lw, int rw, int index){
     }
 }
 
+void print_window() {
+    cout << "Current window = [";
+    for (long i = lw % seq_size; i != rw + 1; i++) {
+        if(i == seq_size){
+            i = 0;
+        }
+        cout << i << (i != rw ? ", " : "");
+        //cout << i << ", ";
+    }
+    cout << "]" << endl;
+}
+
 /**
  * Sets global variable sockfd to valid socket file descriptor
  */
@@ -177,7 +192,7 @@ void write_file(ofstream &dst, char *data, size_t data_size) {
     // write packet contents to file
     if (dst.is_open()) {
         dst.write(data, data_size);
-        cout << "wrote " << data_size << " bytes to file." << endl;
+        //cout << "wrote " << data_size << " bytes to file." << endl;
         dst.seekp(0, ios::end);
     }
 }
@@ -187,6 +202,12 @@ void check_buffer(ofstream &dst, char *data, size_t *data_filled, int databuff_s
         write_file(dst, data, *data_filled);
         *data_filled = 0;
     }
+}
+
+void print_stats() {
+    cout << "Last packet seq# received:" << last_seq_num << endl; 
+    cout << "Number of original packets received: " << num_packets_recv << endl;
+    cout << "Number of retransmitted packets: " << num_retransmitted_packets << endl;
 }
 
 /**
@@ -215,7 +236,8 @@ int window_recv_file(char *data, size_t *data_filled) {
     bool foundEnd = false;
     bool file_end = false;
     int total_bytes_recv = 0;
-    int num_packets_recv = 0;
+    num_packets_recv = 0;
+    num_retransmitted_packets = 0;
     while (!file_end) {
 
         // sleep until receives next packet
@@ -226,10 +248,15 @@ int window_recv_file(char *data, size_t *data_filled) {
 
         //unpack the sent frame
         frame_error = unpack_data(frame, &seq_num, data_buff, &databuff_size, &end);
+        cout << "Packet " << seq_num << " received" << endl;
         if(frame_error){
-            cout << "There has been a frame error!";
+            cout << "Checksum Failed" << endl;        
+        }else{
+            cout << "Checksum OK" << endl;
         }
         
+        
+
         //only copy data into the window if it has not been received yet and it's crc passes
         if(!frame_error && !recv_size[seq_num]&& inWindow(lw,rw,seq_num)){
             memcpy(window[seq_num], data_buff, databuff_size);
@@ -241,8 +268,10 @@ int window_recv_file(char *data, size_t *data_filled) {
                 last_seq_num = seq_num;
                 foundEnd = true;
             }
-            cout << "received packet " << (int) seq_num << "; data: "<<databuff_size<<"; " << bytes_recv << " bytes (total: " << total_bytes_recv << ")\n";     // debug
+            //cout << "Checksum OK " << endl;
+           // cout << "received packet " << (int) seq_num << "; data: "<<databuff_size<<"; " << bytes_recv << " bytes (total: " << total_bytes_recv << ")\n";     // debug
         }else{
+            num_retransmitted_packets++;
             //cout << "Received exta packet " << seq_num << ", thowing." << endl;
         }
         
@@ -252,6 +281,7 @@ int window_recv_file(char *data, size_t *data_filled) {
 
                 lw = (lw + 1) % seq_size;
                 rw = (rw + 1) % seq_size;
+                print_window();
                 //write data to the buffer when rw is max or lw is min
                 if(!end && (rw == seq_size - 1 || lw == 0)){
                      for (int i = 0; i < seq_size; i++){
@@ -318,6 +348,8 @@ int main(int argc, char *argv[]) {
     // char client_addr[INET6_ADDRSTRLEN];
     // inet_ntop(client.ss_family, get_in_addr((struct sockaddr *) &client), client_addr, sizeof client_addr);
     cout << "received " << total_bytes_recv << " bytes\n";
+
+    print_stats();
 
     close(sockfd);
     return 0;
