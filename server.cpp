@@ -15,10 +15,22 @@
 
 #define HOST NULL   // NULL = localhost
 #define PORT "9898"
-#define MAX_DATA_SIZE 65000
-#define MAX_FRAME_SIZE 65010 // to hold extra header data
+//#define MAX_DATA_SIZE 65000
+//#define MAX_FRAME_SIZE 65010 // to hold extra header data
 
 using namespace std;
+
+uint32_t MAX_DATA_SIZE;
+uint32_t MAX_FRAME_SIZE;
+int window_size;
+bool gbn;
+int seq_size; 
+int *recv_size; //Used to record the size of each packet in window. 0 if the window is ready to be filled
+int lw = 0;
+int rw;
+int last_seq_num = -1;
+
+
 
 int sockfd;
 
@@ -110,8 +122,7 @@ bool inWindow(int lw, int rw, int index){
     if(lw == rw){
         return (lw == index);
     }else{
-
-    return (index >= lw && index <= rw) || (index >= lw && rw <= lw) || (index <= rw && rw <= lw);
+        return (index >= lw && index <= rw) || (index >= lw && rw <= lw) || (index <= rw && rw <= lw);
     }
 }
 
@@ -172,7 +183,7 @@ void write_file(ofstream &dst, char *data, size_t data_size) {
 }
 
 void check_buffer(ofstream &dst, char *data, size_t *data_filled, int databuff_size) {
-    if (*data_filled + databuff_size > MAX_DATA_SIZE*8) {
+    if (*data_filled + databuff_size > MAX_DATA_SIZE * 8) {
         write_file(dst, data, *data_filled);
         *data_filled = 0;
     }
@@ -183,20 +194,7 @@ void check_buffer(ofstream &dst, char *data, size_t *data_filled, int databuff_s
  */
 int window_recv_file(char *data, size_t *data_filled) {
     ofstream dst("dst");
-    int window_size = 8;
-    bool gbn = true;
-    //Recv window will always be 1 with GBN
-    if(gbn){
-        window_size = 1;
-    }
-    //Seq_size must be the same as in client
-    int seq_size = 32;
-    //Used to record the size of each packet. 0 if the window is ready to be filled
-    int recv_size[seq_size];
     char window[seq_size][MAX_DATA_SIZE];
-    int lw = 0;
-    int rw = window_size - 1;
-    int last_seq_num = -1;
 
     sockaddr_storage client;
     socklen_t addr_len = sizeof client;
@@ -214,7 +212,6 @@ int window_recv_file(char *data, size_t *data_filled) {
     int frame_error;
     int databuff_size;
     bool end;
-    int end_packet_size = 0;
     bool foundEnd = false;
     bool file_end = false;
     int total_bytes_recv = 0;
@@ -243,7 +240,6 @@ int window_recv_file(char *data, size_t *data_filled) {
             if(end){
                 last_seq_num = seq_num;
                 foundEnd = true;
-                end_packet_size = databuff_size;
             }
             cout << "received packet " << (int) seq_num << "; data: "<<databuff_size<<"; " << bytes_recv << " bytes (total: " << total_bytes_recv << ")\n";     // debug
         }else{
@@ -256,53 +252,30 @@ int window_recv_file(char *data, size_t *data_filled) {
 
                 lw = (lw + 1) % seq_size;
                 rw = (rw + 1) % seq_size;
-                //cout << "Window: [" << lw << " to " << rw << "]" << endl;
-                //when the rw hits a maximum, write out all window data from 0 -> lw to the buffer
-                if(rw == seq_size - 1){
-                    for (int i = 0; i < lw; i++){
-                         if(!end && recv_size[i] ){
-                            //cout << "Writing " << "tp2 " << i << endl; //debug
+                //write data to the buffer when rw is max or lw is min
+                if(!end && (rw == seq_size - 1 || lw == 0)){
+                     for (int i = 0; i < seq_size; i++){
+                        if(!inWindow(lw,rw,i) && recv_size[i] ){
                             check_buffer(dst, data, data_filled, databuff_size);
                             memcpy(data + *data_filled, window[i], recv_size[i]);
-                            *data_filled += MAX_DATA_SIZE;
-                            // zero out the received array
+                            *data_filled += recv_size[i];
+                            // zero out the received array to signal it's empty
                             recv_size[i] = 0;
                         }
                     }
-                }
-                //If lw is 0, write out all data from rw + 1 to the end into the buffer
-                if(lw == 0){
-                    for (int i = rw + 1; i < seq_size; i++){
-                        if(!end && recv_size[i]){
-                             //cout << "Writing " << "tp2 " << i << endl; //debug
-                            check_buffer(dst, data, data_filled, databuff_size);
-                            memcpy(data + *data_filled, window[i], recv_size[i]);
-                            *data_filled += MAX_DATA_SIZE;
-                            recv_size[i] = 0;
-                        }
-                    }
-                }
-    }
-
+                }               
+        }   
         //write out ending data to the buffer
         if(foundEnd && !inWindow(lw,rw,last_seq_num) && last_seq_num >= 0){
-            // write out the data in the window to the buffer
-            for (int i = 0; i < last_seq_num; i++)
+            //write out the data in the window to the buffer 
+            for (int i = 0; i <= last_seq_num; i++)
             {   
                 if(recv_size[i]){
-                    //cout << "Writing " << "tp3 " << i << endl; //debug
                     check_buffer(dst, data, data_filled, databuff_size);
                     memcpy(data + *data_filled, window[i], recv_size[i]);
-                    *data_filled += MAX_DATA_SIZE;
+                    *data_filled += recv_size[i];
                 }
             } 
-            // fill in the last packet into data
-            if(recv_size[seq_num]){
-                //cout << "Writing " << "tp4 " << last_seq_num << endl; //debug
-                check_buffer(dst, data, data_filled, databuff_size);
-                memcpy(data + *data_filled, window[last_seq_num], end_packet_size);
-                *data_filled += end_packet_size;
-            }
             write_file(dst, data, *data_filled);    // write remainder of buffer to file
             cout << "Received File in " << num_packets_recv << " packets. Closing" << endl;
             file_end = true;
@@ -318,7 +291,19 @@ int main(int argc, char *argv[]) {
     // int timeoutInterval;
     // int sizeOfWindow;
     // int rangeOfSequence;
-    
+    MAX_DATA_SIZE = 65000;
+    MAX_FRAME_SIZE = MAX_DATA_SIZE + 10;
+    window_size = 8;
+    gbn = false;
+    //Recv window will always be 1 with GBN
+    if(gbn){
+        window_size = 1;
+    }
+    //Seq_size must be the same as in client
+    seq_size = 32;
+    //Used to record the size of each packet. 0 if the window is ready to be filled
+    recv_size = new int[seq_size];
+    rw = window_size - 1;
     //promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence);
     create_socket();
 
