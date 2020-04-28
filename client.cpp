@@ -170,7 +170,7 @@ void recv_ack(addrinfo *server, const int num_acks) {
         if (valid_seq_num(ack)) {
             // gbn always slides window to lar within window; sr only slides if lw is acked
             acked[ack % window_size] = true;
-            int lw = (data_pos / MAX_DATA_SIZE) % window_size;
+            int lw = (data_pos / MAX_DATA_SIZE) % seq_size % window_size;
             // int rw = (lw + window_size) % window_size;
             int a = data_pos / MAX_DATA_SIZE;
             while (gbn && a <= ack) {
@@ -186,7 +186,7 @@ void recv_ack(addrinfo *server, const int num_acks) {
                     return;
                 }
                 acked[lw] = false;
-                lw = (data_pos / MAX_DATA_SIZE) % window_size;
+                lw = (data_pos / MAX_DATA_SIZE) % seq_size % window_size;
             }
         }
         if (_DEBUG) print_window();
@@ -221,26 +221,33 @@ void send_window(addrinfo *servinfo, char *data) {
     }
     long leftover = data_len % MAX_DATA_SIZE;
     long packet_data_size = MAX_DATA_SIZE;
-    // TODO: gbn sends all always; sr only sends non-acked packets
-    int num_threads = window_size;
-    // thread threads[num_threads];
-    int thread_id = 0;
     for (long i = data_pos; i < rw; i += MAX_DATA_SIZE) {
         count_mutex.lock();
         send_count++;
         if (send_count == 1) send_mutex.lock();
         count_mutex.unlock();
 
-        //cout << "starting thread " << thread_id << endl;
-        
         thread (send_thread, servinfo, data, i, end, leftover, rw, packet_data_size).detach();
-        thread_id++;
 
         count_mutex.lock();
         send_count--;
         if (send_count == 0) send_mutex.unlock();
         count_mutex.unlock();
     }
+}
+
+/**
+ * 
+ */
+void sr_thread(const int seq_num) {
+    bool done = false;
+    while (!done) {
+        // if acked, done
+        window_mutex.lock();
+        // if (acked[])
+        window_mutex.unlock();
+    }
+
 }
 
 /**
@@ -276,8 +283,7 @@ void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
     num_packets_sent = numBlocks;
 
     thread recv_thread(recv_ack, clientinfo, numBlocks);
-    bool done = false;
-    while (!done) {
+    while (gbn) {
         window_mutex.lock();
         if (data_pos >= data_len) break;
         send_window(servinfo, data);
@@ -285,6 +291,9 @@ void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
         window_mutex.unlock();
         send_mutex.unlock();
         if (gbn) this_thread::sleep_for(chrono::milliseconds(gbn_timeout));
+    }
+    if (!gbn) {
+
     }
     delete[] data;
     recv_thread.detach();
@@ -320,8 +329,8 @@ int main(int argc, char *argv[]) {
     }
     host = argv[1];
     filepath = argv[2];
-    window_size = 8;
-    seq_size = 32;
+    window_size = 7;
+    seq_size = 23;
     acked = new bool[window_size];
     memset(acked, 0, window_size);
     sr_timeouts = new time_t[window_size];

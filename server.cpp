@@ -323,14 +323,14 @@ int main(int argc, char *argv[]) {
     // int rangeOfSequence;
     MAX_DATA_SIZE = 65000;
     MAX_FRAME_SIZE = MAX_DATA_SIZE + 10;
-    window_size = 8;
+    window_size = 7;
     gbn = false;
     //Recv window will always be 1 with GBN
     if(gbn){
         window_size = 1;
     }
     //Seq_size must be the same as in client
-    seq_size = 32;
+    seq_size = 23;
     //Used to record the size of each packet. 0 if the window is ready to be filled
     recv_size = new int[seq_size];
     rw = window_size - 1;
