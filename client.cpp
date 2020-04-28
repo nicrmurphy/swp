@@ -20,6 +20,10 @@
 #define MAX_DATA_SIZE 65000
 #define MAX_FRAME_SIZE 65010 // to hold extra header data
 
+#ifndef _DEBUG
+#define _DEBUG true
+#endif
+
 using namespace std;
 
 int sockfd;
@@ -143,7 +147,7 @@ void recv_ack(addrinfo *server, const int num_acks) {
         }
         // TODO: improve situational errors
         // if ((clock() & 2) == 0) continue;   // if system time is even number, drop ack
-        printf("Ack %d received\n", ack);
+        if (_DEBUG) printf("Ack %d received\n", ack);
 
         // count ack and slide window
         window_mutex.lock();
@@ -167,8 +171,8 @@ void recv_ack(addrinfo *server, const int num_acks) {
             acked[lw] = false;
             lw = (data_pos / MAX_DATA_SIZE) % window_size;
         }
-        print_window();
-        // print_acked();  // debug
+        if (_DEBUG) print_window();
+        // if (_DEBUG) print_acked();  // debug
         window_mutex.unlock();
     }
     cout << "recv_ack thread complete \n";
@@ -196,7 +200,7 @@ void send_window(addrinfo *servinfo, char *data) {
         if (i + packet_data_size > data_len) i = data_len - packet_data_size;
         memcpy(packet_data, data + i, packet_data_size);
         /*int bytes_sent = */send_packet(servinfo, seq_num, packet_data, packet_data_size, end && i == rw - packet_data_size);
-        cout << "Packet " << seq_num << " sent" << endl;//"; " << bytes_sent << " bytes to " << host << "\n";
+        if (_DEBUG) cout << "Packet " << seq_num << " sent" << endl;//"; " << bytes_sent << " bytes to " << host << "\n";
     }
 }
 

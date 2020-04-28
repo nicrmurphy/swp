@@ -16,7 +16,9 @@
 #define HOST NULL   // NULL = localhost
 #define PORT "9898"
 
-#define DEBUG
+#ifndef _DEBUG
+#define _DEBUG true
+#endif
 
 using namespace std;
 
@@ -49,9 +51,7 @@ int send_ack(const int sockfd, sockaddr_storage client, socklen_t addr_len, cons
         perror("sendto");
         exit(1);
     }
-    #ifdef DEBUG
-    cout << "ack " << (int) seq_num << " sent\n";
-    #endif  
+    if (_DEBUG) cout << "ack " << (int) seq_num << " sent\n";
     return 0;
 }
 
@@ -250,14 +250,14 @@ int window_recv_file(char *data, size_t *data_filled) {
 
         //unpack the sent frame
         frame_error = unpack_data(frame, &seq_num, data_buff, &databuff_size, &end);
-        #ifdef DEBUG
-        cout << "Packet " << seq_num << " received" << endl;
-        if(frame_error){
-            cout << "Checksum Failed" << endl;        
-        }else{
-            cout << "Checksum OK" << endl;
+        if (_DEBUG) {
+            cout << "Packet " << seq_num << " received" << endl;
+            if(frame_error){
+                cout << "Checksum Failed" << endl;        
+            }else{
+                cout << "Checksum OK" << endl;
+            }
         }
-        #endif
         
         //only copy data into the window if it has not been received yet and it's crc passes
         if(!frame_error && !recv_size[seq_num]&& inWindow(lw,rw,seq_num)){
@@ -281,9 +281,7 @@ int window_recv_file(char *data, size_t *data_filled) {
 
                 lw = (lw + 1) % seq_size;
                 rw = (rw + 1) % seq_size;
-                #ifdef DEBUG
-                print_window();
-                #endif
+                if (_DEBUG) print_window();
                 //write data to the buffer when rw is max or lw is min
                 if(!end && (rw == seq_size - 1 || lw == 0)){
                      for (int i = 0; i < seq_size; i++){
