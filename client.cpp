@@ -42,6 +42,11 @@ int num_packets_sent = 0;
 int num_packets_resent = 0;
 mutex window_mutex;
 
+mutex send_mutex;
+mutex count_mutex;
+int send_count = 0;
+mutex data_mutex;
+
 char checksum(char *frame, int count) {
     u_long sum = 0;
     while (count--) {
@@ -60,10 +65,21 @@ int pack_data(char* frame, int seq_num, char* buff, int buff_size, bool end){
     uint32_t net_data_size = htonl(buff_size);
     memcpy(frame + 1, &net_seq_num, 4);
     memcpy(frame + 5, &net_data_size, 4);
+    data_mutex.lock();
     memcpy(frame + 9, buff, buff_size);
+    data_mutex.unlock();
     frame[buff_size + 9] = checksum(frame, buff_size + (int) 9);
 
     return buff_size + (int)10;
+}
+
+/**
+ * Returns true if the given sequence number is within the current window
+ */
+bool valid_seq_num(const int seq_num) {
+    const long min = (data_pos / MAX_DATA_SIZE) % seq_size;
+    const long max = min + window_size - 1;
+    return seq_num >= min && seq_num <= max;
 }
 
 void print_window() {
@@ -131,6 +147,7 @@ int send_packet(addrinfo *servinfo, const int seq_num, char *data, size_t data_s
         perror("sendto");
         return 1;
     }
+    if (_DEBUG) cout << "Packet " << seq_num << " sent" << endl;
 
     return bytes_sent;
 }
@@ -141,41 +158,55 @@ void recv_ack(addrinfo *server, const int num_acks) {
     uint8_t ack;
     bool done = false;
     while (!done) {
-        if (recvfrom(sockfd, &ack, 1, 0, (struct sockaddr *) server, &addr_len) == -1) {
+        if (::recvfrom(sockfd, &ack, 1, 0, (struct sockaddr *) server, &addr_len) == -1) {
             perror("recvfrom");
             exit(1);
         }
         // TODO: improve situational errors
         // if ((clock() & 2) == 0) continue;   // if system time is even number, drop ack
-        if (_DEBUG) printf("Ack %d received\n", ack);
-
         // count ack and slide window
         window_mutex.lock();
-        // gbn always slides window to lar within window; sr only slides if lw is acked
-        acked[ack % window_size] = true;
-        int lw = (data_pos / MAX_DATA_SIZE) % window_size;
-        // int rw = (lw + window_size) % window_size;
-        int a = data_pos / MAX_DATA_SIZE;
-        while (gbn && a <= ack) {
-            // cout << (a % seq_size) << endl;  // debug
-            acked[a % seq_size] = true;     // ack all packets < lar
-            a++;
-        }
-        while (acked[lw]) {
-            data_pos += MAX_DATA_SIZE;
-            if (data_pos >= data_len) {
-                window_mutex.unlock();
-                cout << "recv_ack thread complete \n";
-                return;
+        if (_DEBUG) printf("Ack %d received\n", ack);
+        if (valid_seq_num(ack)) {
+            // gbn always slides window to lar within window; sr only slides if lw is acked
+            acked[ack % window_size] = true;
+            int lw = (data_pos / MAX_DATA_SIZE) % window_size;
+            // int rw = (lw + window_size) % window_size;
+            int a = data_pos / MAX_DATA_SIZE;
+            while (gbn && a <= ack) {
+                // cout << "seq num: " << (a % seq_size) << ", index " << (a % seq_size % window_size) << " of " << window_size << endl;  // debug
+                acked[a % seq_size % window_size] = true;     // ack all packets < lar
+                a++;
             }
-            acked[lw] = false;
-            lw = (data_pos / MAX_DATA_SIZE) % window_size;
+            while (acked[lw]) {
+                data_pos += MAX_DATA_SIZE;
+                if (data_pos >= data_len) {
+                    window_mutex.unlock();
+                    cout << "recv_ack thread complete \n";
+                    return;
+                }
+                acked[lw] = false;
+                lw = (data_pos / MAX_DATA_SIZE) % window_size;
+            }
         }
         if (_DEBUG) print_window();
-        // if (_DEBUG) print_acked();  // debug
+        if (_DEBUG) print_acked();  // debug
         window_mutex.unlock();
     }
     cout << "recv_ack thread complete \n";
+}
+
+void send_thread(addrinfo *servinfo, char *data, long i, bool end, long leftover, long rw, long packet_data_size) {
+    long seq_num = (i / MAX_DATA_SIZE) % seq_size;
+    // cout << "end: " << end << ", leftover: " << leftover << ", i: " << i << ", rw: " << rw << endl;
+    if (end && leftover && i >= rw - leftover) packet_data_size = leftover;
+    char packet_data[packet_data_size];
+    // cout << "data_len: " << data_len << " accessing data from " << i << " to " << i + packet_data_size << endl; 
+    if (i + packet_data_size > data_len) i = data_len - packet_data_size;
+    data_mutex.lock();
+    memcpy(packet_data, data + i, packet_data_size);
+    data_mutex.unlock();
+    send_packet(servinfo, seq_num, packet_data, packet_data_size, end && i == rw - packet_data_size);
 }
 
 /**
@@ -191,16 +222,24 @@ void send_window(addrinfo *servinfo, char *data) {
     long leftover = data_len % MAX_DATA_SIZE;
     long packet_data_size = MAX_DATA_SIZE;
     // TODO: gbn sends all always; sr only sends non-acked packets
+    int num_threads = window_size;
+    // thread threads[num_threads];
+    int thread_id = 0;
     for (long i = data_pos; i < rw; i += MAX_DATA_SIZE) {
-        long seq_num = (i / MAX_DATA_SIZE) % seq_size;
-        // cout << "end: " << end << ", leftover: " << leftover << ", i: " << i << ", rw: " << rw << endl;
-        if (end && leftover && i >= rw - leftover) packet_data_size = leftover;
-        char packet_data[packet_data_size];
-        // cout << "data_len: " << data_len << " accessing data from " << i << " to " << i + packet_data_size << endl; 
-        if (i + packet_data_size > data_len) i = data_len - packet_data_size;
-        memcpy(packet_data, data + i, packet_data_size);
-        /*int bytes_sent = */send_packet(servinfo, seq_num, packet_data, packet_data_size, end && i == rw - packet_data_size);
-        if (_DEBUG) cout << "Packet " << seq_num << " sent" << endl;//"; " << bytes_sent << " bytes to " << host << "\n";
+        count_mutex.lock();
+        send_count++;
+        if (send_count == 1) send_mutex.lock();
+        count_mutex.unlock();
+
+        //cout << "starting thread " << thread_id << endl;
+        
+        thread (send_thread, servinfo, data, i, end, leftover, rw, packet_data_size).detach();
+        thread_id++;
+
+        count_mutex.lock();
+        send_count--;
+        if (send_count == 0) send_mutex.unlock();
+        count_mutex.unlock();
     }
 }
 
@@ -242,8 +281,10 @@ void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
         window_mutex.lock();
         if (data_pos >= data_len) break;
         send_window(servinfo, data);
+        send_mutex.lock();
         window_mutex.unlock();
-        /*if (gbn) */this_thread::sleep_for(chrono::milliseconds(gbn_timeout));
+        send_mutex.unlock();
+        if (gbn) this_thread::sleep_for(chrono::milliseconds(gbn_timeout));
     }
     delete[] data;
     recv_thread.detach();
@@ -282,9 +323,11 @@ int main(int argc, char *argv[]) {
     window_size = 8;
     seq_size = 32;
     acked = new bool[window_size];
+    memset(acked, 0, window_size);
     sr_timeouts = new time_t[window_size];
+    memset(sr_timeouts, 0, window_size);
     gbn = true;
-    /*if (gbn) */gbn_timeout = 10;    // in ms
+    if (gbn) gbn_timeout = 10;    // in ms
 
     // prepare socket
     struct addrinfo hints, *servinfo, *clientinfo;
@@ -326,7 +369,6 @@ int main(int argc, char *argv[]) {
 
         break;
     }
-    freeaddrinfo(clientinfo);
 
     // if successful, node now points to the info of the successfully created socket
     if (node == NULL) {
@@ -344,6 +386,7 @@ int main(int argc, char *argv[]) {
     delete[] acked;
     delete[] sr_timeouts;
     close(sockfd);
+    freeaddrinfo(clientinfo);
     freeaddrinfo(servinfo);
     return 0;
 }
