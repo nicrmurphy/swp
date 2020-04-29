@@ -46,6 +46,8 @@ mutex send_mutex;
 mutex count_mutex;
 int send_count = 0;
 mutex data_mutex;
+bool program_done = false;
+mutex done_mutex;
 
 char checksum(char *frame, int count) {
     u_long sum = 0;
@@ -148,7 +150,12 @@ int send_packet(addrinfo *servinfo, const int seq_num, char *data, size_t data_s
         return 1;
     }
     if (_DEBUG) {
-        if (resend) cout << "Packet " << seq_num << " Re-transmitted." << endl;
+        if (resend) {
+            cout << "Packet " << seq_num << " Re-transmitted." << endl;
+            window_mutex.lock();
+            num_packets_resent++;
+            window_mutex.unlock();
+        }
         else cout << "Packet " << seq_num << " sent" << endl;
     }
 
@@ -198,9 +205,9 @@ void send_window(addrinfo *servinfo, char *data) {
 /**
  * 
  */
-void sr_thread(addrinfo *servinfo, char *data, const long offset) {
+void sr_thread(addrinfo *servinfo, char *data, const long data_pos, const long offset) {
     // send packet
-    window_mutex.lock();
+
     // cout << "start thread " << this_thread::get_id() << " for offset " << offset << endl;
     long rw = data_pos + (window_size * MAX_DATA_SIZE);
     bool end = false;
@@ -210,34 +217,37 @@ void sr_thread(addrinfo *servinfo, char *data, const long offset) {
     }
     long leftover = data_len % MAX_DATA_SIZE;
     long packet_data_size = MAX_DATA_SIZE;
-    long i = data_pos + (offset * MAX_DATA_SIZE);
-    // cout << "data offset: " << i / MAX_DATA_SIZE << endl;
+    long i = data_pos + offset;
     long seq_num = (i / MAX_DATA_SIZE) % seq_size;
+    // cout << "data pos: " << data_pos << "; offset: " << offset << "; seq num: " << seq_num << endl;
+    if (i > rw) return;
 
     bool done = false;
     bool resend = false;
+    int timeout_ms = 10;
+    window_mutex.lock();
     while (!done) {
         if (resend) {
+            timeout_ms *= 2;
             window_mutex.lock();
             // cout << "*check if " << seq_num << " has been acked: " << (!valid_seq_num(seq_num) || acked[seq_num % window_size]) << endl;
             if (!valid_seq_num(seq_num) || acked[seq_num % window_size]) break;
-            cout << ": Packet " << seq_num << " *****Timed Out *****" << endl;
+            if (_DEBUG) cout << "Packet " << seq_num << " *****Timed Out *****" << endl;
         }
         thread (send_thread, servinfo, data, i, end, leftover, rw, packet_data_size, resend).detach();
         window_mutex.unlock();
         resend = true;
-        this_thread::sleep_for(chrono::milliseconds(1000));
+        this_thread::sleep_for(chrono::milliseconds(timeout_ms));
     }
     // cout << "closing thread " << this_thread::get_id() << endl;
     window_mutex.unlock();
 }
 
-void recv_ack(addrinfo *server, char *data) {
+void recv_ack(addrinfo *server, char *data, addrinfo *servinfo) {
     socklen_t addr_len = sizeof server;
     // sleep until receives next packet
     uint8_t ack;
-    bool done = false;
-    while (!done) {
+    while (true) {
         if (::recvfrom(sockfd, &ack, 1, 0, (struct sockaddr *) server, &addr_len) == -1) {
             perror("recvfrom");
             exit(1);
@@ -263,19 +273,24 @@ void recv_ack(addrinfo *server, char *data) {
                 if (data_pos >= data_len) {
                     window_mutex.unlock();
                     cout << "recv_ack thread complete \n";
+                    done_mutex.lock();
+                    program_done = true;
+                    done_mutex.unlock();
                     return;
                 }
                 acked[lw] = false;
                 lw = (data_pos / MAX_DATA_SIZE) % seq_size % window_size;
                 // start next thread
-                if (!gbn) thread (sr_thread, server, data, window_size - 1).detach();
+                // cout << "data_pos: " << data_pos / MAX_DATA_SIZE << endl;
+                if (!gbn) {
+                    thread (sr_thread, servinfo, data, data_pos, (window_size - 1) * MAX_DATA_SIZE).detach();
+                }
             }
         }
         if (_DEBUG) print_window();
         if (_DEBUG) print_acked();  // debug
         window_mutex.unlock();
     }
-    cout << "recv_ack thread complete \n";
 }
 
 /**
@@ -310,7 +325,7 @@ void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
     if (leftover) numBlocks++;
     num_packets_sent = numBlocks;
 
-    if (gbn) thread (recv_ack, clientinfo, data).detach();
+    if (gbn) thread (recv_ack, clientinfo, data, servinfo).detach();
     while (gbn) {
         window_mutex.lock();
         if (data_pos >= data_len) break;
@@ -321,13 +336,17 @@ void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
         if (gbn) this_thread::sleep_for(chrono::milliseconds(gbn_timeout));
     }
     if (!gbn) {
-        for (int t = 0; t < window_size; t++) {
-            thread (sr_thread, servinfo, data, t).detach();
+        for (int t = 0; t < min(window_size, numBlocks); t++) {
+            thread (sr_thread, servinfo, data, 0, t * MAX_DATA_SIZE).detach();
+            this_thread::sleep_for(chrono::milliseconds(10));
         }
-        thread (recv_ack, clientinfo, data).detach();
-        this_thread::sleep_for(chrono::seconds(3));
-        cout << "closing." << endl;
-        exit(1);
+        thread (recv_ack, clientinfo, data, servinfo).detach();
+        while (true) {
+            this_thread::sleep_for(chrono::milliseconds(10));
+            done_mutex.lock();  // wait for recv_ack thread to complete
+            if (program_done) break;
+            done_mutex.unlock();
+        }
     }
     delete[] data;
 }
@@ -362,8 +381,8 @@ int main(int argc, char *argv[]) {
     }
     host = argv[1];
     filepath = argv[2];
-    window_size = 3;
-    seq_size = 7;
+    window_size = 7;
+    seq_size = 20;
     acked = new bool[window_size];
     memset(acked, 0, window_size);
     sr_timeouts = new time_t[window_size];
