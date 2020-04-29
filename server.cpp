@@ -9,6 +9,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <iostream>
+#include <sstream>
 #include <fstream>
 #include <thread>
 #include <stdint.h>
@@ -83,22 +84,44 @@ bool unpack_data(char* frame, int* seq_num, char* buff, int* buff_size, bool* en
     return frame[*buff_size + 9] != checksum(frame, *buff_size + (int) 9);
 }
 
-void generateErrors(){}
+int* generateErrors(){}
 void promptErrors(){}
 
 void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, int* sizeOfWindow, int* rangeOfSequence){
     //START USER INPUT
     
+    string input;
+
     cout << "Type of protocol (GBN or SR): ";
-    cin >> *protocol;
-    cout << "Packet Size (kB): ";
-    cin >> *packetSize;
+    getline(cin, input);
+    if(!input.empty()){
+        stringstream stream(input);
+        stream >> *protocol;
+    }
+    cout << "Packet Size (kB) (32kB default): ";
+    getline(cin, input);
+    if(!input.empty()){
+        istringstream stream(input);
+        stream >> *packetSize;
+    }
     cout << "Timeout interval (0 for ping calculated): ";
-    cin >> *timeoutInterval;
-    cout << "Size of sliding window: ";
-    cin >> *sizeOfWindow;
-    cout << "Range of sequence numbers: ";
-    cin >> *rangeOfSequence;
+    getline(cin, input);
+    if(!input.empty()){
+        istringstream stream(input);
+        stream >> *timeoutInterval;
+    }
+    cout << "Size of sliding window (5 default): ";
+    getline(cin, input);
+    if(!input.empty()){
+        istringstream stream(input);
+        stream >> *sizeOfWindow;
+    }
+    cout << "Range of sequence numbers (64 default): ";
+    getline(cin, input);
+    if(!input.empty()){
+        istringstream stream(input);
+        stream >> *rangeOfSequence;
+    }
 
     string userInput;
     cout << "Situational Errors" << endl;
@@ -113,7 +136,6 @@ void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, in
     } else if(userInput.compare("3") == 0){
         promptErrors();
     }
-
     //END USER INPUT
 }
 
@@ -318,11 +340,12 @@ int window_recv_file(char *data, size_t *data_filled) {
 }
 
 int main(int argc, char *argv[]) {
-    // string protocol;
-    // int packetSize;
-    // int timeoutInterval;
-    // int sizeOfWindow;
-    // int rangeOfSequence;
+    string protocol;
+    int packetSize = 32000;
+    int timeoutInterval;
+    int sizeOfWindow = 5;
+    int rangeOfSequence = 64;
+
     MAX_DATA_SIZE = 65000;
     MAX_FRAME_SIZE = MAX_DATA_SIZE + 10;
     window_size = 8;
