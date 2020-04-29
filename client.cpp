@@ -79,9 +79,10 @@ int pack_data(char* frame, int seq_num, char* buff, int buff_size, bool end){
  * Returns true if the given sequence number is within the current window
  */
 bool valid_seq_num(const int seq_num) {
-    const long min = (data_pos / MAX_DATA_SIZE) % seq_size;
-    const long max = min + window_size - 1;
-    return seq_num >= min && seq_num <= max;
+    for (long i = data_pos; i < data_pos + (window_size * MAX_DATA_SIZE); i += MAX_DATA_SIZE) {
+        if ((i / MAX_DATA_SIZE) % seq_size == seq_num) return true;
+    }
+    return false;
 }
 
 void print_window() {
@@ -100,7 +101,19 @@ void print_acked() {
     cout << "         Acked = [";
     for (long i = data_pos; i < data_pos + (window_size * MAX_DATA_SIZE); i += MAX_DATA_SIZE) {
         long seq_num = (i / MAX_DATA_SIZE) % seq_size;
-        cout << (i != data_pos ? ", " : "") << (seq_num > 9 ? " " : "") << acked[seq_num % window_size];
+        cout << (i != data_pos ? ", " : "") << (seq_num > 9 ? " " : "") << acked[(i / MAX_DATA_SIZE) % window_size];
+    }
+    cout << "]" << endl;
+}
+
+/**
+ * 
+ */
+void print_indices() {
+    cout << "       Indices = [";
+    for (long i = data_pos; i < data_pos + (window_size * MAX_DATA_SIZE); i += MAX_DATA_SIZE) {
+        long seq_num = (i / MAX_DATA_SIZE) % seq_size;
+        cout << (i != data_pos ? ", " : "") << (seq_num > 9 ? " " : "") << (i / MAX_DATA_SIZE) % window_size;
     }
     cout << "]" << endl;
 }
@@ -239,7 +252,7 @@ void sr_thread(addrinfo *servinfo, char *data, const long data_pos, const long o
         resend = true;
         this_thread::sleep_for(chrono::milliseconds(timeout_ms));
     }
-    // cout << "closing thread " << this_thread::get_id() << endl;
+    // cout << "closing thread for " << seq_num << endl;
     window_mutex.unlock();
 }
 
@@ -259,15 +272,18 @@ void recv_ack(addrinfo *server, char *data, addrinfo *servinfo) {
         if (_DEBUG) printf("Ack %d received\n", ack);
         if (valid_seq_num(ack)) {
             // gbn always slides window to lar within window; sr only slides if lw is acked
-            acked[ack % window_size] = true;
-            int lw = (data_pos / MAX_DATA_SIZE) % seq_size % window_size;
+            int index = data_pos;
+            while (((index / MAX_DATA_SIZE) % seq_size) != ack) index += MAX_DATA_SIZE;
+            cout << "index: " << (index / MAX_DATA_SIZE) % window_size << endl;
+            acked[(index / MAX_DATA_SIZE) % window_size] = true;
+            int lw = (data_pos / MAX_DATA_SIZE) % window_size;
             // int rw = (lw + window_size) % window_size;
-            int a = data_pos / MAX_DATA_SIZE;
-            while (gbn && a <= ack) {
-                // cout << "seq num: " << (a % seq_size) << ", index " << (a % seq_size % window_size) << " of " << window_size << endl;  // debug
-                acked[a % seq_size % window_size] = true;     // ack all packets < lar
-                a++;
-            }
+            // int a = data_pos / MAX_DATA_SIZE;
+            // while (gbn && a <= ack) {
+            //     // cout << "seq num: " << (a % seq_size) << ", index " << (a % seq_size % window_size) << " of " << window_size << endl;  // debug
+            //     acked[a % seq_size % window_size] = true;     // ack all packets < lar
+            //     a++;
+            // }
             while (acked[lw]) {
                 data_pos += MAX_DATA_SIZE;
                 if (data_pos >= data_len) {
@@ -279,7 +295,7 @@ void recv_ack(addrinfo *server, char *data, addrinfo *servinfo) {
                     return;
                 }
                 acked[lw] = false;
-                lw = (data_pos / MAX_DATA_SIZE) % seq_size % window_size;
+                lw = (data_pos / MAX_DATA_SIZE) % window_size;
                 // start next thread
                 // cout << "data_pos: " << data_pos / MAX_DATA_SIZE << endl;
                 if (!gbn) {
@@ -289,6 +305,7 @@ void recv_ack(addrinfo *server, char *data, addrinfo *servinfo) {
         }
         if (_DEBUG) print_window();
         if (_DEBUG) print_acked();  // debug
+        if (_DEBUG) print_indices();
         window_mutex.unlock();
     }
 }
