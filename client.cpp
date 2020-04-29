@@ -35,7 +35,6 @@ bool gbn;
 
 bool *acked;
 time_t gbn_timeout;
-time_t *sr_timeouts;
 long data_pos = 0;  // holds how many consecutive bytes have been acked
 long data_len;      // size of entire data buffer
 int num_packets_sent = 0;
@@ -244,6 +243,7 @@ void sr_thread(addrinfo *servinfo, char *data, const long data_pos, const long o
             timeout_ms *= 2;
             window_mutex.lock();
             // cout << "*check if " << seq_num << " has been acked: " << (!valid_seq_num(seq_num) || acked[seq_num % window_size]) << endl;
+            if (i > data_pos + (window_size * MAX_DATA_SIZE)) break;
             if (!valid_seq_num(seq_num) || acked[(i / MAX_DATA_SIZE) % window_size]) break;
             if (_DEBUG) cout << "Packet " << seq_num << " *****Timed Out *****" << endl;
         }
@@ -278,12 +278,12 @@ void recv_ack(addrinfo *server, char *data, addrinfo *servinfo) {
             acked[(index / MAX_DATA_SIZE) % window_size] = true;
             int lw = (data_pos / MAX_DATA_SIZE) % window_size;
             // int rw = (lw + window_size) % window_size;
-            // int a = data_pos / MAX_DATA_SIZE;
-            // while (gbn && a <= ack) {
-            //     // cout << "seq num: " << (a % seq_size) << ", index " << (a % seq_size % window_size) << " of " << window_size << endl;  // debug
-            //     acked[a % seq_size % window_size] = true;     // ack all packets < lar
-            //     a++;
-            // }
+            int a = data_pos / MAX_DATA_SIZE;
+            while (gbn && a <= ack) {
+                // cout << "seq num: " << (a % seq_size) << ", index " << (a % seq_size % window_size) << " of " << window_size << endl;  // debug
+                acked[a % seq_size % window_size] = true;     // ack all packets < lar
+                a++;
+            }
             while (acked[lw]) {
                 data_pos += MAX_DATA_SIZE;
                 if (data_pos >= data_len) {
@@ -402,9 +402,7 @@ int main(int argc, char *argv[]) {
     seq_size = 20;
     acked = new bool[window_size];
     memset(acked, 0, window_size);
-    sr_timeouts = new time_t[window_size];
-    memset(sr_timeouts, 0, window_size);
-    gbn = false;
+    gbn = true;
     if (gbn) gbn_timeout = 10;    // in ms
 
     // prepare socket
@@ -462,7 +460,6 @@ int main(int argc, char *argv[]) {
     cout << endl;
     cout << "main thread complete\n";
     delete[] acked;
-    delete[] sr_timeouts;
     close(sockfd);
     freeaddrinfo(clientinfo);
     freeaddrinfo(servinfo);

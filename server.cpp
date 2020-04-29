@@ -256,7 +256,7 @@ int window_recv_file(char *data, size_t *data_filled) {
                 cout << "Checksum Failed" << endl;        
             }else{
                 cout << "Checksum OK" << endl;
-                send_ack(sockfd, client, addr_len, seq_num);
+                if (!gbn) send_ack(sockfd, client, addr_len, seq_num);
             }
         }
         
@@ -278,7 +278,7 @@ int window_recv_file(char *data, size_t *data_filled) {
         
         // shift the window if needed
         while (recv_size[lw]) {
-                // send_ack(sockfd, client, addr_len, lw);
+                if (gbn) send_ack(sockfd, client, addr_len, lw);
 
                 lw = (lw + 1) % seq_size;
                 rw = (rw + 1) % seq_size;
@@ -325,7 +325,7 @@ int main(int argc, char *argv[]) {
     MAX_DATA_SIZE = 65000;
     MAX_FRAME_SIZE = MAX_DATA_SIZE + 10;
     window_size = 7;
-    gbn = false;
+    gbn = true;
     //Recv window will always be 1 with GBN
     if(gbn){
         window_size = 1;
