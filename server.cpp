@@ -352,7 +352,6 @@ int main(int argc, char *argv[]) {
     cout << "received " << total_bytes_recv << " bytes\n";
 
     print_stats();
-    system("md5 src dst");
     close(sockfd);
     return 0;
 }

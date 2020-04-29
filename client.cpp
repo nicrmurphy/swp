@@ -237,14 +237,14 @@ void sr_thread(addrinfo *servinfo, char *data, const long data_pos, const long o
 
     bool done = false;
     bool resend = false;
-    int timeout_ms = 10;
+    int timeout_ms = 400;
     window_mutex.lock();
     while (!done) {
         if (resend) {
             timeout_ms *= 2;
             window_mutex.lock();
             // cout << "*check if " << seq_num << " has been acked: " << (!valid_seq_num(seq_num) || acked[seq_num % window_size]) << endl;
-            if (!valid_seq_num(seq_num) || acked[seq_num % window_size]) break;
+            if (!valid_seq_num(seq_num) || acked[(i / MAX_DATA_SIZE) % window_size]) break;
             if (_DEBUG) cout << "Packet " << seq_num << " *****Timed Out *****" << endl;
         }
         thread (send_thread, servinfo, data, i, end, leftover, rw, packet_data_size, resend).detach();
