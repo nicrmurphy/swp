@@ -84,10 +84,37 @@ bool unpack_data(char* frame, int* seq_num, char* buff, int* buff_size, bool* en
     return frame[*buff_size + 9] != checksum(frame, *buff_size + (int) 9);
 }
 
-int* generateErrors(){}
-void promptErrors(){}
+bool* generateErrors(int sequenceRange){
+    bool* errors = (bool*)malloc(sizeof(bool) * sequenceRange); //array of bool for each sequence number
+    int chance = 10; //Out of 100 (%)
+    srand(time(NULL));
+    for(int i = 0; i < sequenceRange; i++){
+        if((rand() % 100 + 1) <= chance){ //If chance has been met
+            errors[i] = true; //Drop error at sequence number i
+        }
+    }
+    
+    return errors; //Return filled array of errors
+}
+bool* promptErrors(int sequenceRange){
+    bool* errors = (bool*)malloc(sizeof(bool) * sequenceRange);
+    string input;
+    cout << "Input sequence numbers to drop packet in space separated list (2 4 5 6 7). Only one drop packet per sequence number" << endl;
+    cout << "> ";
+    getline(cin, input);
+    getline(cin, input);
 
-void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, int* sizeOfWindow, int* rangeOfSequence){
+    stringstream ssin(input);
+    string inputNumber;
+    int i = 0;
+    while(ssin >> inputNumber && i < sequenceRange){
+        errors[stoi(inputNumber)] = true;
+    }
+
+    return errors;
+}
+
+void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, int* sizeOfWindow, int* rangeOfSequence, bool** errorArray){
     //START USER INPUT
     
     string input;
@@ -132,9 +159,9 @@ void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, in
     cout << "> ";
     cin >> userInput;
     if(userInput.compare("2") == 0){
-        generateErrors();
+        *errorArray = generateErrors(*rangeOfSequence);
     } else if(userInput.compare("3") == 0){
-        promptErrors();
+        *errorArray = promptErrors(*rangeOfSequence);
     }
     //END USER INPUT
 }
@@ -238,7 +265,7 @@ void print_stats() {
 /**
  * Transfer a file using sliding window.
  */
-int window_recv_file(char *data, size_t *data_filled) {
+int window_recv_file(char *data, size_t *data_filled, bool* errorArray) {
     ofstream dst("dst");
     char window[seq_size][MAX_DATA_SIZE];
 
@@ -297,6 +324,10 @@ int window_recv_file(char *data, size_t *data_filled) {
             num_retransmitted_packets++;
         }
         
+        if(errorArray[lw]){ //If should drop packet at lw
+            recv_size[lw] = 0; //Drop packet
+        }
+
         // shift the window if needed
         while (recv_size[lw]) {
                 send_ack(sockfd, client, addr_len, lw);
@@ -345,6 +376,8 @@ int main(int argc, char *argv[]) {
     int timeoutInterval;
     int sizeOfWindow = 5;
     int rangeOfSequence = 64;
+    bool* errorArray;
+    promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence, &errorArray);
 
     MAX_DATA_SIZE = 65000;
     MAX_FRAME_SIZE = MAX_DATA_SIZE + 10;
@@ -366,7 +399,7 @@ int main(int argc, char *argv[]) {
     size_t data_filled = 0;
 
     //int total_bytes_recv = recv_file(data, &data_filled);
-    int total_bytes_recv = window_recv_file(data, &data_filled);
+    int total_bytes_recv = window_recv_file(data, &data_filled, errorArray);
 
     delete[] data;
     delete[] recv_size;
