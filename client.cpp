@@ -15,6 +15,8 @@
 #include <thread>
 #include <time.h>
 #include <mutex>
+#include <vector>
+#include <numeric>
 
 #define PORT "9898"
 #define MAX_DATA_SIZE 65000
@@ -39,6 +41,8 @@ long data_pos = 0;  // holds how many consecutive bytes have been acked
 long data_len;      // size of entire data buffer
 int num_packets_sent = 0;
 int num_packets_resent = 0;
+double avg_rtt = 0;
+vector<int> rts = {};
 mutex window_mutex;
 
 mutex send_mutex;
@@ -190,7 +194,7 @@ void send_thread(addrinfo *servinfo, char *data, long i, bool end, long leftover
 /**
  * Send all the packets in the window
  */
-void send_window(addrinfo *servinfo, char *data) {
+void send_window(addrinfo *servinfo, char *data, long prev_offset) {
     long rw = data_pos + (window_size * MAX_DATA_SIZE);
     bool end = false;
     if (rw >= data_len) {
@@ -205,7 +209,10 @@ void send_window(addrinfo *servinfo, char *data) {
         if (send_count == 1) send_mutex.lock();
         count_mutex.unlock();
 
-        thread (send_thread, servinfo, data, i, end, leftover, rw, packet_data_size, true).detach();
+        // bool resend = i <= (prev_offset + (window_size * MAX_DATA_SIZE));
+        // cout << "i: " << i << "; other: " << (prev_offset + (window_size * MAX_DATA_SIZE)) << endl;
+        thread (send_thread, servinfo, data, i, end, leftover, rw, packet_data_size, false).detach();
+        // this_thread::sleep_for(chrono::milliseconds(2));
 
         count_mutex.lock();
         send_count--;
@@ -236,11 +243,14 @@ void sr_thread(addrinfo *servinfo, char *data, const long data_pos, const long o
 
     bool done = false;
     bool resend = false;
-    int timeout_ms = 400;
+    long long sent;
+    double rtt;
+    int timeout_ms = avg_rtt ? avg_rtt : 10;
+    // int timeout_ms = 1;
     window_mutex.lock();
     while (!done) {
         if (resend) {
-            timeout_ms *= 2;
+            timeout_ms <<= 1;
             window_mutex.lock();
             // cout << "*check if " << seq_num << " has been acked: " << (!valid_seq_num(seq_num) || acked[seq_num % window_size]) << endl;
             if (i > data_pos + (window_size * MAX_DATA_SIZE)) break;
@@ -248,11 +258,19 @@ void sr_thread(addrinfo *servinfo, char *data, const long data_pos, const long o
             if (_DEBUG) cout << "Packet " << seq_num << " *****Timed Out *****" << endl;
         }
         thread (send_thread, servinfo, data, i, end, leftover, rw, packet_data_size, resend).detach();
+        if (!resend) sent = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
         window_mutex.unlock();
         resend = true;
         this_thread::sleep_for(chrono::milliseconds(timeout_ms));
     }
-    // cout << "closing thread for " << seq_num << endl;
+    cout << "closing thread for " << seq_num << endl;
+    long long recv = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
+    // cout << "packet " << seq_num << " finished at " << recv << endl;
+    rtt = (recv - sent);
+    if (rts.size() >= 100) rts.erase(rts.begin());
+    rts.push_back(rtt);
+    avg_rtt = accumulate(rts.begin(), rts.end(), 0.0f) / rts.size(); 
+    cout << "rtt: " << rtt << "; avg: " << avg_rtt << endl;
     window_mutex.unlock();
 }
 
@@ -274,7 +292,7 @@ void recv_ack(addrinfo *server, char *data, addrinfo *servinfo) {
             // gbn always slides window to lar within window; sr only slides if lw is acked
             int index = data_pos;
             while (((index / MAX_DATA_SIZE) % seq_size) != ack) index += MAX_DATA_SIZE;
-            cout << "index: " << (index / MAX_DATA_SIZE) % window_size << endl;
+            // cout << "index: " << (index / MAX_DATA_SIZE) % window_size << endl;
             acked[(index / MAX_DATA_SIZE) % window_size] = true;
             int lw = (data_pos / MAX_DATA_SIZE) % window_size;
             // int rw = (lw + window_size) % window_size;
@@ -305,7 +323,7 @@ void recv_ack(addrinfo *server, char *data, addrinfo *servinfo) {
         }
         if (_DEBUG) print_window();
         if (_DEBUG) print_acked();  // debug
-        if (_DEBUG) print_indices();
+        // if (_DEBUG) print_indices();
         window_mutex.unlock();
     }
 }
@@ -343,14 +361,16 @@ void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
     num_packets_sent = numBlocks;
 
     if (gbn) thread (recv_ack, clientinfo, data, servinfo).detach();
+    long prev_offset = -data_len;
     while (gbn) {
         window_mutex.lock();
         if (data_pos >= data_len) break;
-        send_window(servinfo, data);
+        send_window(servinfo, data, prev_offset);
+        prev_offset = data_pos;
         send_mutex.lock();
         window_mutex.unlock();
         send_mutex.unlock();
-        if (gbn) this_thread::sleep_for(chrono::milliseconds(gbn_timeout));
+        this_thread::sleep_for(chrono::milliseconds(gbn_timeout));
     }
     if (!gbn) {
         for (int t = 0; t < min(window_size, numBlocks); t++) {
@@ -375,9 +395,11 @@ void print_stats(clock_t start_time) {
 
     cout << "Number of original packets sent: " << num_packets_sent << endl;
     cout << "Number of retransmitted packets: " << num_packets_resent << endl;
-    double elapsed_seconds = (clock() - start_time) / (double) CLOCKS_PER_SEC * 10;    // TODO: might be wrong
-    cout << "Total elapsed time: " << (double) elapsed_seconds << endl;
-    cout << "Total throughput (Mbps): " << data_len * 8 / elapsed_seconds / 1048576 << endl;
+    auto end_time = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
+    auto elapsed_ms = end_time - start_time;
+    double elapsed_sec = elapsed_ms / 1000.0f;
+    cout << "Total elapsed time: " << elapsed_sec << endl;
+    cout << "Total throughput (Mbps): " << data_len / elapsed_sec / (1024*1024) << endl;
     cout << "Effective throughput: " << endl;
 }
 
@@ -453,7 +475,7 @@ int main(int argc, char *argv[]) {
     }
 
     // start timer
-    clock_t start_time = clock();
+    auto start_time = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
     window_transfer_file(node, servinfo);
     print_stats(start_time);
 
