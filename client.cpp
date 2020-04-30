@@ -41,8 +41,6 @@ long data_pos = 0;  // holds how many consecutive bytes have been acked
 long data_len;      // size of entire data buffer
 int num_packets_sent = 0;
 int num_packets_resent = 0;
-double avg_rtt = 0;
-vector<int> rts = {};
 mutex window_mutex;
 
 mutex send_mutex;
@@ -168,9 +166,9 @@ int send_packet(addrinfo *servinfo, const int seq_num, char *data, size_t data_s
     if (_DEBUG) {
         if (resend) {
             cout << "Packet " << seq_num << " Re-transmitted." << endl;
-            window_mutex.lock();
+            if (gbn) window_mutex.lock();
             num_packets_resent++;
-            window_mutex.unlock();
+            if (gbn) window_mutex.unlock();
         }
         else cout << "Packet " << seq_num << " sent" << endl;
     }
@@ -243,34 +241,22 @@ void sr_thread(addrinfo *servinfo, char *data, const long data_pos, const long o
 
     bool done = false;
     bool resend = false;
-    long long sent;
-    double rtt;
-    int timeout_ms = avg_rtt ? avg_rtt : 10;
-    // int timeout_ms = 1;
+    int timeout_ms = 10;
     window_mutex.lock();
     while (!done) {
         if (resend) {
             timeout_ms <<= 1;
             window_mutex.lock();
-            // cout << "*check if " << seq_num << " has been acked: " << (!valid_seq_num(seq_num) || acked[seq_num % window_size]) << endl;
-            if (i > data_pos + (window_size * MAX_DATA_SIZE)) break;
+            if (i < ::data_pos) break;
             if (!valid_seq_num(seq_num) || acked[(i / MAX_DATA_SIZE) % window_size]) break;
             if (_DEBUG) cout << "Packet " << seq_num << " *****Timed Out *****" << endl;
         }
-        thread (send_thread, servinfo, data, i, end, leftover, rw, packet_data_size, resend).detach();
-        if (!resend) sent = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
+        send_thread(servinfo, data, i, end, leftover, rw, packet_data_size, resend);
         window_mutex.unlock();
         resend = true;
         this_thread::sleep_for(chrono::milliseconds(timeout_ms));
     }
     cout << "closing thread for " << seq_num << endl;
-    long long recv = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
-    // cout << "packet " << seq_num << " finished at " << recv << endl;
-    rtt = (recv - sent);
-    if (rts.size() >= 100) rts.erase(rts.begin());
-    rts.push_back(rtt);
-    avg_rtt = accumulate(rts.begin(), rts.end(), 0.0f) / rts.size(); 
-    cout << "rtt: " << rtt << "; avg: " << avg_rtt << endl;
     window_mutex.unlock();
 }
 
@@ -424,7 +410,7 @@ int main(int argc, char *argv[]) {
     seq_size = 20;
     acked = new bool[window_size];
     memset(acked, 0, window_size);
-    gbn = true;
+    gbn = false;
     if (gbn) gbn_timeout = 10;    // in ms
 
     // prepare socket
