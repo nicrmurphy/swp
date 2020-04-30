@@ -118,6 +118,17 @@ void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, in
 }
 
 /**
+ * Returns the last received ack for GBN
+ */
+int last_ack(){
+    if(lw == 0){
+        return seq_size - 1;
+    }else{
+        return lw - 1;
+    }
+}
+
+/**
  * Returns true if the index is within the current window.
  */
 bool inWindow(int lw, int rw, int index){
@@ -256,7 +267,15 @@ int window_recv_file(char *data, size_t *data_filled) {
                 cout << "Checksum Failed" << endl;        
             }else{
                 cout << "Checksum OK" << endl;
-                if (!gbn) send_ack(sockfd, client, addr_len, seq_num);
+                if (!gbn){
+                    send_ack(sockfd, client, addr_len, seq_num);
+                }else{
+                    if(inWindow(lw,rw,seq_num)){
+                        send_ack(sockfd, client, addr_len, seq_num);
+                    }else{
+                        send_ack(sockfd, client, addr_len, last_ack());
+                    }
+                }
             }
         }
         
@@ -278,8 +297,6 @@ int window_recv_file(char *data, size_t *data_filled) {
         
         // shift the window if needed
         while (recv_size[lw]) {
-                if (gbn) send_ack(sockfd, client, addr_len, lw);
-
                 lw = (lw + 1) % seq_size;
                 rw = (rw + 1) % seq_size;
                 if (_DEBUG) print_window();
