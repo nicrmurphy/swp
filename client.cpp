@@ -49,9 +49,19 @@ mutex data_mutex;
 bool program_done = false;
 mutex done_mutex;
 
-ThreadPool pool(26);
+ThreadPool pool(24);    // if the program exits with error "Resource temporarily unavailable", decrement this constant
 long long lfs_ts = -1;
 mutex lfs_ts_mutex;
+
+struct packet_info {
+    long seq_num;
+    long data_loc;
+    bool end;
+    long leftover;
+    long rw;
+    long packet_data_size;
+    bool resend;
+};
 
 char checksum(char *frame, int count) {
     u_long sum = 0;
@@ -158,38 +168,35 @@ void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, in
 /**
  * Returns number of bytes sent
  */
-int send_packet(addrinfo *servinfo, const int seq_num, char *data, size_t data_size, bool end, bool resend) {
+int send_packet(addrinfo *servinfo, char *packet_data, bool end, bool resend, packet_info *info) {
     char frame[MAX_FRAME_SIZE];
     int bytes_sent;
-    int frame_size = pack_data(frame, seq_num, data, data_size, end);
+    int frame_size = pack_data(frame, info->seq_num, packet_data, info->packet_data_size, end);
     if ((bytes_sent = sendto(sockfd, frame, frame_size, 0, servinfo->ai_addr, servinfo->ai_addrlen)) == -1) {
         perror("sendto");
         return 1;
     }
     if (_DEBUG) {
         if (resend) {
-            cout << "Packet " << seq_num << " Re-transmitted." << endl;
-            if (gbn) window_mutex.lock();
+            cout << "Packet " << info->seq_num << " Re-transmitted." << endl;
             num_packets_resent++;
-            if (gbn) window_mutex.unlock();
         }
-        else cout << "Packet " << seq_num << " sent" << endl;
+        else cout << "Packet " << info->seq_num << " sent" << endl;
     }
 
     return bytes_sent;
 }
 
-void send_thread(addrinfo *servinfo, char *data, long i, bool end, long leftover, long rw, long packet_data_size, bool resend) {
-    long seq_num = (i / MAX_DATA_SIZE) % seq_size;
+void send_thread(addrinfo *servinfo, char *data, long data_loc, bool end, long leftover, bool resend, packet_info *info) {
     // cout << "end: " << end << ", leftover: " << leftover << ", i: " << i << ", rw: " << rw << endl;
-    if (end && leftover && i >= rw - leftover) packet_data_size = leftover;
-    char packet_data[packet_data_size];
+    if (end && leftover && data_loc >= info->rw - leftover) info->packet_data_size = leftover;
+    char packet_data[info->packet_data_size];
     // cout << "data_len: " << data_len << " accessing data from " << i << " to " << i + packet_data_size << endl; 
-    if (i + packet_data_size > data_len) i = data_len - packet_data_size;
+    if (data_loc + info->packet_data_size > data_len) data_loc = data_len - info->packet_data_size;
     data_mutex.lock();
-    memcpy(packet_data, data + i, packet_data_size);
+    memcpy(packet_data, data + data_loc, info->packet_data_size);
     data_mutex.unlock();
-    send_packet(servinfo, seq_num, packet_data, packet_data_size, end && i == rw - packet_data_size, resend);
+    send_packet(servinfo, packet_data, end && data_loc == info->rw - info->packet_data_size, resend, info);
     if (gbn) {
         lfs_ts_mutex.lock();
         lfs_ts = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
@@ -197,32 +204,16 @@ void send_thread(addrinfo *servinfo, char *data, long i, bool end, long leftover
         lfs_ts_mutex.unlock();
     }
 }
-
+void sr_thread(addrinfo *servinfo, char *data, const long data_pos, const long offset);
 /**
  * Send all the packets in the window
  */
 void send_window(addrinfo *servinfo, char *data, const bool resend) {
     long rw = data_pos + (window_size * MAX_DATA_SIZE);
-    bool end = false;
-    if (rw >= data_len) {
-        end = true;
-        rw = data_len;
-    }
-    long leftover = data_len % MAX_DATA_SIZE;
-    long packet_data_size = MAX_DATA_SIZE;
-    for (long i = data_pos; i < rw; i += MAX_DATA_SIZE) {
-        count_mutex.lock();
-        send_count++;
-        if (send_count == 1) send_mutex.lock();
-        count_mutex.unlock();
-
-        pool.enqueue(send_thread, servinfo, data, i, end, leftover, rw, packet_data_size, resend);
+    if (rw >= data_len) rw = data_len;
+    for (long data_loc = data_pos; data_loc < rw; data_loc += MAX_DATA_SIZE) {
+        pool.enqueue(sr_thread, servinfo, data, data_pos, data_loc - data_pos);
         this_thread::sleep_for(chrono::milliseconds(1));
-
-        count_mutex.lock();
-        send_count--;
-        if (send_count == 0) send_mutex.unlock();
-        count_mutex.unlock();
     }
 }
 
@@ -241,25 +232,32 @@ void sr_thread(addrinfo *servinfo, char *data, const long data_pos, const long o
     }
     long leftover = data_len % MAX_DATA_SIZE;
     long packet_data_size = MAX_DATA_SIZE;
-    long i = data_pos + offset;
-    long seq_num = (i / MAX_DATA_SIZE) % seq_size;
+    long data_loc = data_pos + offset;
+    long seq_num = (data_loc / MAX_DATA_SIZE) % seq_size;
     // cout << "data pos: " << data_pos << "; offset: " << offset << "; seq num: " << seq_num << endl;
-    if (i > rw) return;
+    if (data_loc > rw) return;
 
     bool done = false;
     bool resend = false;
     int timeout_ms = 10;
     window_mutex.lock();
-    if (i < ::data_pos) return;
+    if (data_loc < ::data_pos) {
+        window_mutex.unlock();
+        return;
+    }
+    packet_info info;
+    info.rw = rw;
+    info.packet_data_size = packet_data_size;
+    info.seq_num = seq_num;
     while (!done) {
         if (resend) {
             timeout_ms <<= 1;
             window_mutex.lock();
-            if (i < ::data_pos) break;
-            if (!valid_seq_num(seq_num) || acked[(i / MAX_DATA_SIZE) % window_size]) break;
+            if (data_loc < ::data_pos) break;
+            if (!valid_seq_num(seq_num) || acked[(data_loc / MAX_DATA_SIZE) % window_size]) break;
             if (_DEBUG) cout << "Packet " << seq_num << " *****Timed Out *****" << endl;
         }
-        send_thread(servinfo, data, i, end, leftover, rw, packet_data_size, resend);
+        send_thread(servinfo, data, data_loc, end, leftover, resend, &info);
         window_mutex.unlock();
         if (gbn) return;
         resend = true;
@@ -358,23 +356,25 @@ void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
     if (gbn) pool.enqueue(recv_ack, clientinfo, data, servinfo);
     bool resend = false;
     while (gbn) {
-        lfs_ts_mutex.lock();
+        window_mutex.lock();
+        // lfs_ts_mutex.lock();
         auto now = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
         // cout << "check if need to resend window: (" << now << " - " << lfs_ts << " >= " << gbn_timeout << ")" << endl;
         if (now - lfs_ts >= gbn_timeout) {
             // resend window
-            lfs_ts_mutex.unlock();
-            window_mutex.lock();
+            // lfs_ts_mutex.unlock();
+            // window_mutex.lock();
             if (data_pos >= data_len) break;
             send_window(servinfo, data, resend);
             resend = true;
-            send_mutex.lock();
+            // send_mutex.lock();
             window_mutex.unlock();
-            send_mutex.unlock();
+            // send_mutex.unlock();
             cout << "sleeping for " << gbn_timeout << " ms" << endl;
             this_thread::sleep_for(chrono::milliseconds(gbn_timeout));
         } else {
-            lfs_ts_mutex.unlock();
+            window_mutex.unlock();
+            // lfs_ts_mutex.unlock();
             cout << "sleeping for " << gbn_timeout - (now - lfs_ts) << " ms" << endl;
             this_thread::sleep_for(chrono::milliseconds(gbn_timeout - (now - lfs_ts)));
         }
@@ -431,7 +431,7 @@ int main(int argc, char *argv[]) {
     seq_size = 20;
     acked = new bool[window_size];
     memset(acked, 0, window_size);
-    gbn = true;
+    gbn = false;
     if (gbn) gbn_timeout = 10;    // in ms
 
     // prepare socket

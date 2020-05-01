@@ -342,7 +342,7 @@ int main(int argc, char *argv[]) {
     MAX_DATA_SIZE = 65000;
     MAX_FRAME_SIZE = MAX_DATA_SIZE + 10;
     window_size = 7;
-    gbn = true;
+    gbn = false;
     //Recv window will always be 1 with GBN
     if(gbn){
         window_size = 1;
