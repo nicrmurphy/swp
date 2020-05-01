@@ -10,6 +10,7 @@
 #include <netdb.h>
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <chrono>
 #include <ctime>
 #include <thread>
@@ -122,22 +123,80 @@ void print_indices() {
     cout << "]" << endl;
 }
 
-void generateErrors(){}
-void promptErrors(){}
+bool* generateErrors(int sequenceRange){
+    bool* errors = (bool*)malloc(sizeof(bool) * sequenceRange); //array of bool for each sequence number
+    int chance = 10; //Out of 100 (%)
+    srand(time(NULL));
+    for(int i = 0; i < sequenceRange; i++){
+        if((rand() % 100 + 1) <= chance){ //If chance has been met
+            errors[i] = true; //Drop error at sequence number i
+        }
+    }
+    
+    return errors; //Return filled array of errors
+}
+bool* promptErrors(int sequenceRange){
+    bool* errors = (bool*)malloc(sizeof(bool) * sequenceRange);
+    string input;
+    cout << "Input sequence numbers to drop packet in space separated list (2 4 5 6 7). Only one drop packet per sequence number" << endl;
+    cout << "> ";
+    getline(cin, input);
+    getline(cin, input);
 
-void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, int* sizeOfWindow, int* rangeOfSequence){
+    stringstream ssin(input);
+    string inputNumber;
+    int i = 0;
+    while(ssin >> inputNumber && i < sequenceRange){
+        errors[stoi(inputNumber)] = true;
+    }
+
+    return errors;
+}
+
+void promptUserInput(string* hostIP, string* protocol, int* packetSize, int* timeoutInterval, int* sizeOfWindow, int* rangeOfSequence, bool** errorArray){
     //START USER INPUT
     
+    string input;
+
+    cout << "Host IP";
+    getline(cin, input);
+    if(!input.empty()){
+        stringstream stream(input);
+        stream >> *hostIP;
+    }
     cout << "Type of protocol (GBN or SR): ";
-    cin >> *protocol;
-    cout << "Packet Size (kB): ";
-    cin >> *packetSize;
+    getline(cin, input);
+    if(!input.empty()){
+        stringstream stream(input);
+        stream >> *protocol;
+    }
+    cout << "Packet Size (kB) (32kB default): ";
+    getline(cin, input);
+    if(!input.empty()){
+        istringstream stream(input);
+        stream >> *packetSize;
+    }
     cout << "Timeout interval (0 for ping calculated): ";
-    cin >> *timeoutInterval;
-    cout << "Size of sliding window: ";
-    cin >> *sizeOfWindow;
-    cout << "Range of sequence numbers: ";
-    cin >> *rangeOfSequence;
+    getline(cin, input);
+    if(!input.empty()){
+        istringstream stream(input);
+        stream >> *timeoutInterval;
+    }
+    cout << "Size of sliding window (5 default): ";
+    getline(cin, input);
+    if(!input.empty()){
+        istringstream stream(input);
+        stream >> *sizeOfWindow;
+    }
+    cout << "Range of sequence numbers (64 default): ";
+    getline(cin, input);
+    if(!input.empty()){
+        istringstream stream(input);
+        stream >> *rangeOfSequence;
+    }
+
+    cout << *rangeOfSequence << endl;
+
 
     string userInput;
     cout << "Situational Errors" << endl;
@@ -147,10 +206,15 @@ void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, in
     cout << "3. User-Specified" << endl;
     cout << "> ";
     cin >> userInput;
-    if(userInput.compare("2") == 0){
-        generateErrors();
+    if(userInput.compare("1") == 0){
+        *errorArray = (bool*)malloc(sizeof(bool) * (*rangeOfSequence));
+        for(int i = 0; i < *rangeOfSequence; i++){
+            (*errorArray)[i] = false;
+        }
+    } else if(userInput.compare("2") == 0){
+        *errorArray = generateErrors(*rangeOfSequence);
     } else if(userInput.compare("3") == 0){
-        promptErrors();
+        *errorArray = promptErrors(*rangeOfSequence);
     }
     //END USER INPUT
 }
@@ -269,7 +333,7 @@ void sr_thread(addrinfo *servinfo, char *data, const long data_pos, const long o
     window_mutex.unlock();
 }
 
-void recv_ack(addrinfo *server, char *data, addrinfo *servinfo) {
+void recv_ack(addrinfo *server, char *data, addrinfo *servinfo, bool *errorArray) {
     socklen_t addr_len = sizeof server;
     // sleep until receives next packet
     uint8_t ack;
@@ -281,44 +345,51 @@ void recv_ack(addrinfo *server, char *data, addrinfo *servinfo) {
         // TODO: improve situational errors
         // if ((clock() & 2) == 0) continue;   // if system time is even number, drop ack
         // count ack and slide window
-        window_mutex.lock();
-        if (_DEBUG) printf("Ack %d received\n", ack);
-        if (valid_seq_num(ack)) {
-            // gbn always slides window to lar within window; sr only slides if lw is acked
-            int index = data_pos;
-            while (((index / MAX_DATA_SIZE) % seq_size) != ack) index += MAX_DATA_SIZE;
-            // cout << "index: " << (index / MAX_DATA_SIZE) % window_size << endl;
-            acked[(index / MAX_DATA_SIZE) % window_size] = true;
-            int lw = (data_pos / MAX_DATA_SIZE) % window_size;
-            // int rw = (lw + window_size) % window_size;
-            int a = data_pos / MAX_DATA_SIZE;
-            while (gbn && a <= ack) {
-                // cout << "seq num: " << (a % seq_size) << ", index " << (a % seq_size % window_size) << " of " << window_size << endl;  // debug
-                acked[a % seq_size % window_size] = true;     // ack all packets < lar
-                a++;
-            }
-            while (acked[lw]) {
-                data_pos += MAX_DATA_SIZE;
-                if (data_pos >= data_len) {
-                    window_mutex.unlock();
-                    // cout << "recv_ack thread complete \n";
-                    done_mutex.lock();
-                    program_done = true;
-                    done_mutex.unlock();
-                    return;
+        if(errorArray != NULL && errorArray[ack]){
+            printf("Ack %d dropped\n", ack);
+            errorArray[ack] = false;
+        } else{
+            printf("Ack %d received\n", ack);
+            window_mutex.lock();
+        
+            if (_DEBUG) printf("Ack %d received\n", ack);
+            if (valid_seq_num(ack)) {
+                // gbn always slides window to lar within window; sr only slides if lw is acked
+                int index = data_pos;
+                while (((index / MAX_DATA_SIZE) % seq_size) != ack) index += MAX_DATA_SIZE;
+                // cout << "index: " << (index / MAX_DATA_SIZE) % window_size << endl;
+                acked[(index / MAX_DATA_SIZE) % window_size] = true;
+                int lw = (data_pos / MAX_DATA_SIZE) % window_size;
+                // int rw = (lw + window_size) % window_size;
+                int a = data_pos / MAX_DATA_SIZE;
+                while (gbn && a <= ack) {
+                    // cout << "seq num: " << (a % seq_size) << ", index " << (a % seq_size % window_size) << " of " << window_size << endl;  // debug
+                    acked[a % seq_size % window_size] = true;     // ack all packets < lar
+                    a++;
                 }
-                acked[lw] = false;
-                lw = (data_pos / MAX_DATA_SIZE) % window_size;
-                // start next thread
-                // cout << "data_pos: " << data_pos / MAX_DATA_SIZE << endl;
-                // if (!gbn) {
-                    pool.enqueue(sr_thread, servinfo, data, data_pos, (window_size - 1) * MAX_DATA_SIZE);
-                // }
+                while (acked[lw]) {
+                    data_pos += MAX_DATA_SIZE;
+                    if (data_pos >= data_len) {
+                        window_mutex.unlock();
+                        // cout << "recv_ack thread complete \n";
+                        done_mutex.lock();
+                        program_done = true;
+                        done_mutex.unlock();
+                        return;
+                    }
+                    acked[lw] = false;
+                    lw = (data_pos / MAX_DATA_SIZE) % window_size;
+                    // start next thread
+                    // cout << "data_pos: " << data_pos / MAX_DATA_SIZE << endl;
+                    // if (!gbn) {
+                        pool.enqueue(sr_thread, servinfo, data, data_pos, (window_size - 1) * MAX_DATA_SIZE);
+                    // }
+                }
             }
+            if (_DEBUG) print_window();
+            // if (_DEBUG) print_acked();  // debug
+            // if (_DEBUG) print_indices();
         }
-        if (_DEBUG) print_window();
-        // if (_DEBUG) print_acked();  // debug
-        // if (_DEBUG) print_indices();
         window_mutex.unlock();
     }
 }
@@ -343,7 +414,7 @@ void read_file(char **data, long *data_len) {
 /**
  * Transfer a file using sliding window.
  */
-void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
+void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo, bool* errorArray){
     // read in file 
     char *data;
     read_file(&data, &data_len);
@@ -355,7 +426,7 @@ void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
     if (leftover) numBlocks++;
     num_packets_sent = numBlocks;
 
-    if (gbn) pool.enqueue(recv_ack, clientinfo, data, servinfo);
+    if (gbn) pool.enqueue(recv_ack, clientinfo, data, servinfo, errorArray);
     bool resend = false;
     while (gbn) {
         lfs_ts_mutex.lock();
@@ -384,7 +455,7 @@ void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
             pool.enqueue(sr_thread, servinfo, data, 0, t * MAX_DATA_SIZE);
             this_thread::sleep_for(chrono::milliseconds(1));
         }
-        pool.enqueue(recv_ack, clientinfo, data, servinfo);
+        pool.enqueue(recv_ack, clientinfo, data, servinfo, errorArray);
         while (true) {
             this_thread::sleep_for(chrono::milliseconds(10));
             done_mutex.lock();  // wait for recv_ack thread to complete
@@ -411,13 +482,15 @@ void print_stats(clock_t start_time) {
 }
 
 int main(int argc, char *argv[]) {
-    // string protocol;
-    // int packetSize;
-    // int timeoutInterval;
-    // int sizeOfWindow;
-    // int rangeOfSequence;
+    string hostIP;
+    string protocol;
+    int packetSize = 32000;
+    int timeoutInterval;
+    int sizeOfWindow = 5;
+    int rangeOfSequence = 64;
+    bool* errorArray;
     
-    //  promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence);
+    promptUserInput(&hostIP, &protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence, &errorArray);
 
     // TODO: replace command line arguments with prompts
     if (argc != 3) {
@@ -431,7 +504,7 @@ int main(int argc, char *argv[]) {
     seq_size = 20;
     acked = new bool[window_size];
     memset(acked, 0, window_size);
-    gbn = true;
+    gbn = false;
     if (gbn) gbn_timeout = 10;    // in ms
 
     // prepare socket
@@ -483,7 +556,7 @@ int main(int argc, char *argv[]) {
 
     // start timer
     auto start_time = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
-    window_transfer_file(node, servinfo);
+    window_transfer_file(node, servinfo, errorArray);
     print_stats(start_time);
 
     cout << endl;
