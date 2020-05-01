@@ -15,8 +15,7 @@
 #include <thread>
 #include <time.h>
 #include <mutex>
-#include <vector>
-#include <numeric>
+#include "ThreadPool.h"
 
 #define PORT "9898"
 #define MAX_DATA_SIZE 65000
@@ -49,6 +48,8 @@ int send_count = 0;
 mutex data_mutex;
 bool program_done = false;
 mutex done_mutex;
+
+ThreadPool pool(26);
 
 char checksum(char *frame, int count) {
     u_long sum = 0;
@@ -209,7 +210,7 @@ void send_window(addrinfo *servinfo, char *data, long prev_offset) {
 
         // bool resend = i <= (prev_offset + (window_size * MAX_DATA_SIZE));
         // cout << "i: " << i << "; other: " << (prev_offset + (window_size * MAX_DATA_SIZE)) << endl;
-        thread (send_thread, servinfo, data, i, end, leftover, rw, packet_data_size, false).detach();
+        pool.enqueue(send_thread, servinfo, data, i, end, leftover, rw, packet_data_size, false);
         // this_thread::sleep_for(chrono::milliseconds(2));
 
         count_mutex.lock();
@@ -256,7 +257,7 @@ void sr_thread(addrinfo *servinfo, char *data, const long data_pos, const long o
         resend = true;
         this_thread::sleep_for(chrono::milliseconds(timeout_ms));
     }
-    cout << "closing thread for " << seq_num << endl;
+    // cout << "closing thread for " << seq_num << endl;
     window_mutex.unlock();
 }
 
@@ -292,7 +293,7 @@ void recv_ack(addrinfo *server, char *data, addrinfo *servinfo) {
                 data_pos += MAX_DATA_SIZE;
                 if (data_pos >= data_len) {
                     window_mutex.unlock();
-                    cout << "recv_ack thread complete \n";
+                    // cout << "recv_ack thread complete \n";
                     done_mutex.lock();
                     program_done = true;
                     done_mutex.unlock();
@@ -303,12 +304,12 @@ void recv_ack(addrinfo *server, char *data, addrinfo *servinfo) {
                 // start next thread
                 // cout << "data_pos: " << data_pos / MAX_DATA_SIZE << endl;
                 if (!gbn) {
-                    thread (sr_thread, servinfo, data, data_pos, (window_size - 1) * MAX_DATA_SIZE).detach();
+                    pool.enqueue(sr_thread, servinfo, data, data_pos, (window_size - 1) * MAX_DATA_SIZE);
                 }
             }
         }
         if (_DEBUG) print_window();
-        if (_DEBUG) print_acked();  // debug
+        // if (_DEBUG) print_acked();  // debug
         // if (_DEBUG) print_indices();
         window_mutex.unlock();
     }
@@ -346,7 +347,7 @@ void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
     if (leftover) numBlocks++;
     num_packets_sent = numBlocks;
 
-    if (gbn) thread (recv_ack, clientinfo, data, servinfo).detach();
+    if (gbn) pool.enqueue(recv_ack, clientinfo, data, servinfo);
     long prev_offset = -data_len;
     while (gbn) {
         window_mutex.lock();
@@ -360,10 +361,10 @@ void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
     }
     if (!gbn) {
         for (int t = 0; t < min(window_size, numBlocks); t++) {
-            thread (sr_thread, servinfo, data, 0, t * MAX_DATA_SIZE).detach();
+            pool.enqueue(sr_thread, servinfo, data, 0, t * MAX_DATA_SIZE);
             this_thread::sleep_for(chrono::milliseconds(10));
         }
-        thread (recv_ack, clientinfo, data, servinfo).detach();
+        pool.enqueue(recv_ack, clientinfo, data, servinfo);
         while (true) {
             this_thread::sleep_for(chrono::milliseconds(10));
             done_mutex.lock();  // wait for recv_ack thread to complete
@@ -406,8 +407,8 @@ int main(int argc, char *argv[]) {
     }
     host = argv[1];
     filepath = argv[2];
-    window_size = 7;
-    seq_size = 20;
+    window_size = 49;
+    seq_size = 100;
     acked = new bool[window_size];
     memset(acked, 0, window_size);
     gbn = false;
