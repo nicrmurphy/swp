@@ -15,8 +15,7 @@
 #include <thread>
 #include <time.h>
 #include <mutex>
-#include <vector>
-#include <numeric>
+#include "ThreadPool.h"
 
 #define PORT "9898"
 #define MAX_DATA_SIZE 65000
@@ -49,6 +48,10 @@ int send_count = 0;
 mutex data_mutex;
 bool program_done = false;
 mutex done_mutex;
+
+ThreadPool pool(26);
+long long lfs_ts = -1;
+mutex lfs_ts_mutex;
 
 char checksum(char *frame, int count) {
     u_long sum = 0;
@@ -187,12 +190,18 @@ void send_thread(addrinfo *servinfo, char *data, long i, bool end, long leftover
     memcpy(packet_data, data + i, packet_data_size);
     data_mutex.unlock();
     send_packet(servinfo, seq_num, packet_data, packet_data_size, end && i == rw - packet_data_size, resend);
+    if (gbn) {
+        lfs_ts_mutex.lock();
+        lfs_ts = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
+        // cout << "new lfs_ts: " << lfs_ts << endl;
+        lfs_ts_mutex.unlock();
+    }
 }
 
 /**
  * Send all the packets in the window
  */
-void send_window(addrinfo *servinfo, char *data, long prev_offset) {
+void send_window(addrinfo *servinfo, char *data, const bool resend) {
     long rw = data_pos + (window_size * MAX_DATA_SIZE);
     bool end = false;
     if (rw >= data_len) {
@@ -207,10 +216,8 @@ void send_window(addrinfo *servinfo, char *data, long prev_offset) {
         if (send_count == 1) send_mutex.lock();
         count_mutex.unlock();
 
-        // bool resend = i <= (prev_offset + (window_size * MAX_DATA_SIZE));
-        // cout << "i: " << i << "; other: " << (prev_offset + (window_size * MAX_DATA_SIZE)) << endl;
-        thread (send_thread, servinfo, data, i, end, leftover, rw, packet_data_size, false).detach();
-        // this_thread::sleep_for(chrono::milliseconds(2));
+        pool.enqueue(send_thread, servinfo, data, i, end, leftover, rw, packet_data_size, resend);
+        this_thread::sleep_for(chrono::milliseconds(1));
 
         count_mutex.lock();
         send_count--;
@@ -243,6 +250,7 @@ void sr_thread(addrinfo *servinfo, char *data, const long data_pos, const long o
     bool resend = false;
     int timeout_ms = 10;
     window_mutex.lock();
+    if (i < ::data_pos) return;
     while (!done) {
         if (resend) {
             timeout_ms <<= 1;
@@ -253,10 +261,11 @@ void sr_thread(addrinfo *servinfo, char *data, const long data_pos, const long o
         }
         send_thread(servinfo, data, i, end, leftover, rw, packet_data_size, resend);
         window_mutex.unlock();
+        if (gbn) return;
         resend = true;
         this_thread::sleep_for(chrono::milliseconds(timeout_ms));
     }
-    cout << "closing thread for " << seq_num << endl;
+    // cout << "closing thread for " << seq_num << endl;
     window_mutex.unlock();
 }
 
@@ -292,7 +301,7 @@ void recv_ack(addrinfo *server, char *data, addrinfo *servinfo) {
                 data_pos += MAX_DATA_SIZE;
                 if (data_pos >= data_len) {
                     window_mutex.unlock();
-                    cout << "recv_ack thread complete \n";
+                    // cout << "recv_ack thread complete \n";
                     done_mutex.lock();
                     program_done = true;
                     done_mutex.unlock();
@@ -302,13 +311,13 @@ void recv_ack(addrinfo *server, char *data, addrinfo *servinfo) {
                 lw = (data_pos / MAX_DATA_SIZE) % window_size;
                 // start next thread
                 // cout << "data_pos: " << data_pos / MAX_DATA_SIZE << endl;
-                if (!gbn) {
-                    thread (sr_thread, servinfo, data, data_pos, (window_size - 1) * MAX_DATA_SIZE).detach();
-                }
+                // if (!gbn) {
+                    pool.enqueue(sr_thread, servinfo, data, data_pos, (window_size - 1) * MAX_DATA_SIZE);
+                // }
             }
         }
         if (_DEBUG) print_window();
-        if (_DEBUG) print_acked();  // debug
+        // if (_DEBUG) print_acked();  // debug
         // if (_DEBUG) print_indices();
         window_mutex.unlock();
     }
@@ -346,24 +355,36 @@ void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo){
     if (leftover) numBlocks++;
     num_packets_sent = numBlocks;
 
-    if (gbn) thread (recv_ack, clientinfo, data, servinfo).detach();
-    long prev_offset = -data_len;
+    if (gbn) pool.enqueue(recv_ack, clientinfo, data, servinfo);
+    bool resend = false;
     while (gbn) {
-        window_mutex.lock();
-        if (data_pos >= data_len) break;
-        send_window(servinfo, data, prev_offset);
-        prev_offset = data_pos;
-        send_mutex.lock();
-        window_mutex.unlock();
-        send_mutex.unlock();
-        this_thread::sleep_for(chrono::milliseconds(gbn_timeout));
+        lfs_ts_mutex.lock();
+        auto now = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
+        // cout << "check if need to resend window: (" << now << " - " << lfs_ts << " >= " << gbn_timeout << ")" << endl;
+        if (now - lfs_ts >= gbn_timeout) {
+            // resend window
+            lfs_ts_mutex.unlock();
+            window_mutex.lock();
+            if (data_pos >= data_len) break;
+            send_window(servinfo, data, resend);
+            resend = true;
+            send_mutex.lock();
+            window_mutex.unlock();
+            send_mutex.unlock();
+            cout << "sleeping for " << gbn_timeout << " ms" << endl;
+            this_thread::sleep_for(chrono::milliseconds(gbn_timeout));
+        } else {
+            lfs_ts_mutex.unlock();
+            cout << "sleeping for " << gbn_timeout - (now - lfs_ts) << " ms" << endl;
+            this_thread::sleep_for(chrono::milliseconds(gbn_timeout - (now - lfs_ts)));
+        }
     }
     if (!gbn) {
         for (int t = 0; t < min(window_size, numBlocks); t++) {
-            thread (sr_thread, servinfo, data, 0, t * MAX_DATA_SIZE).detach();
-            this_thread::sleep_for(chrono::milliseconds(10));
+            pool.enqueue(sr_thread, servinfo, data, 0, t * MAX_DATA_SIZE);
+            this_thread::sleep_for(chrono::milliseconds(1));
         }
-        thread (recv_ack, clientinfo, data, servinfo).detach();
+        pool.enqueue(recv_ack, clientinfo, data, servinfo);
         while (true) {
             this_thread::sleep_for(chrono::milliseconds(10));
             done_mutex.lock();  // wait for recv_ack thread to complete
@@ -410,7 +431,7 @@ int main(int argc, char *argv[]) {
     seq_size = 20;
     acked = new bool[window_size];
     memset(acked, 0, window_size);
-    gbn = false;
+    gbn = true;
     if (gbn) gbn_timeout = 10;    // in ms
 
     // prepare socket
