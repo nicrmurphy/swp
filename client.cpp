@@ -244,6 +244,7 @@ void sr_thread(addrinfo *servinfo, char *data, const long data_pos, const long o
     long i = data_pos + offset;
     long seq_num = (i / MAX_DATA_SIZE) % seq_size;
     // cout << "data pos: " << data_pos << "; offset: " << offset << "; seq num: " << seq_num << endl;
+    if (i > rw) return;
 
     bool done = false;
     bool resend = false;
