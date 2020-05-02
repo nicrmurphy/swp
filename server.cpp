@@ -87,7 +87,7 @@ bool unpack_data(char* frame, int* seq_num, char* buff, int* buff_size, bool* en
 bool* generateErrors(int sequenceRange){
     bool* errors = (bool*)malloc(sizeof(bool) * sequenceRange); //array of bool for each sequence number
     int chance = 10; //Out of 100 (%)
-    srand(time(NULL));
+    
     for(int i = 0; i < sequenceRange; i++){
         if((rand() % 100 + 1) <= chance){ //If chance has been met
             errors[i] = true; //Drop error at sequence number i
@@ -104,7 +104,6 @@ bool* promptErrors(int sequenceRange, bool damage){
 
     cout << "Input sequence numbers to " << (damage ? "damage" : "drop") << " packet in space separated list (2 4 5 6 7). Only one " << (damage ? "damaged" : "dropped") << " packet per sequence number" << endl;
     cout << "> ";
-    getline(cin, input);
     getline(cin, input);
 
     stringstream ssin(input);
@@ -160,7 +159,7 @@ void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, in
     cout << "2. Randomly Generated" << endl;
     cout << "3. User-Specified" << endl;
     cout << "> ";
-    cin >> userInput;
+    getline(cin, userInput);
     if(userInput.compare("1") == 0){
         *errorArray = (bool*)malloc(sizeof(bool) * (*rangeOfSequence));
         for(int i = 0; i < *rangeOfSequence; i++){
@@ -323,15 +322,19 @@ int window_recv_file(char *data, size_t *data_filled, bool* errorArray, bool* da
             continue;
         }
 
-        if(errorArray != NULL && errorArray[lw]){ //If should drop packet at lw
-            recv_size[lw] = 0; //Drop packet
-            errorArray[lw] = false;
+        frame_error = unpack_data(frame, &seq_num, data_buff, &databuff_size, &end);
+
+        cout << seq_num << endl;;
+        if(errorArray != NULL && errorArray[seq_num]){ //If should drop packet at lw
+            cout << "Packet " << seq_num << " dropped" << endl;
+            recv_size[seq_num] = 0; //Drop packet
+            errorArray[seq_num] = false;
         } else{
             //unpack the sent frame
-            frame_error = unpack_data(frame, &seq_num, data_buff, &databuff_size, &end);
-            if(damageArray != NULL && damageArray[lw]){
+            if(damageArray != NULL && damageArray[seq_num]){
+                cout << "DAMAGED" << endl;
                 frame_error = 1;
-                damageArray[lw] = false;
+                damageArray[seq_num] = false;
             }
             if (_DEBUG) {
                 cout << "Packet " << seq_num << " received" << endl;
@@ -415,7 +418,15 @@ int main(int argc, char *argv[]) {
     int rangeOfSequence = 64;
     bool* errorArray;
     bool* damageArray;
+    srand(time(NULL));
     promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence, &errorArray, &damageArray);
+
+    for(int i = 0; i < rangeOfSequence; i++){
+        if(errorArray[i]) cout << i << " ";
+        if(damageArray[i]) cout << i << " ";
+    }
+
+    cout << endl;
 
     MAX_DATA_SIZE = 65000;
     MAX_FRAME_SIZE = MAX_DATA_SIZE + 10;

@@ -147,7 +147,6 @@ bool* promptErrors(int sequenceRange){
     cout << "Input sequence numbers to drop packet in space separated list (2 4 5 6 7). Only one drop packet per sequence number" << endl;
     cout << "> ";
     getline(cin, input);
-    getline(cin, input);
 
     stringstream ssin(input);
     string inputNumber;
@@ -208,7 +207,7 @@ void promptUserInput(string* hostIP, string* protocol, int* packetSize, int* tim
     cout << "2. Randomly Generated" << endl;
     cout << "3. User-Specified" << endl;
     cout << "> ";
-    cin >> userInput;
+    getline(cin, userInput);
     if(userInput.compare("1") == 0){
         *errorArray = (bool*)malloc(sizeof(bool) * (*rangeOfSequence));
         for(int i = 0; i < *rangeOfSequence; i++){
