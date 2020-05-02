@@ -201,9 +201,6 @@ void promptUserInput(string* hostIP, string* protocol, int* packetSize, int* tim
         stream >> *rangeOfSequence;
     }
 
-    cout << *rangeOfSequence << endl;
-
-
     string userInput;
     cout << "Situational Errors" << endl;
     cout << "------------------" << endl;
@@ -222,8 +219,6 @@ void promptUserInput(string* hostIP, string* protocol, int* packetSize, int* tim
     } else if(userInput.compare("3") == 0){
         *errorArray = promptErrors(*rangeOfSequence);
     }
-
-    return errors;
 }
 
 

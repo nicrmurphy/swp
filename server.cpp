@@ -96,10 +96,13 @@ bool* generateErrors(int sequenceRange){
     
     return errors; //Return filled array of errors
 }
-bool* promptErrors(int sequenceRange){
+
+bool* promptErrors(int sequenceRange, bool damage){
     bool* errors = (bool*)malloc(sizeof(bool) * sequenceRange);
     string input;
-    cout << "Input sequence numbers to drop packet in space separated list (2 4 5 6 7). Only one drop packet per sequence number" << endl;
+    
+
+    cout << "Input sequence numbers to " << (damage ? "damage" : "drop") << " packet in space separated list (2 4 5 6 7). Only one " << (damage ? "damaged" : "dropped") << " packet per sequence number" << endl;
     cout << "> ";
     getline(cin, input);
     getline(cin, input);
@@ -114,7 +117,7 @@ bool* promptErrors(int sequenceRange){
     return errors;
 }
 
-void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, int* sizeOfWindow, int* rangeOfSequence, bool** errorArray){
+void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, int* sizeOfWindow, int* rangeOfSequence, bool** errorArray, bool** damageArray){
     //START USER INPUT
     
     string input;
@@ -163,10 +166,17 @@ void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, in
         for(int i = 0; i < *rangeOfSequence; i++){
             (*errorArray)[i] = false;
         }
+
+        *damageArray = (bool*)malloc(sizeof(bool) * (*rangeOfSequence));
+        for(int i = 0; i < *rangeOfSequence; i++){
+            (*damageArray)[i] = false;
+        }
     } else if(userInput.compare("2") == 0){
         *errorArray = generateErrors(*rangeOfSequence);
+        *damageArray = generateErrors(*rangeOfSequence);
     } else if(userInput.compare("3") == 0){
-        *errorArray = promptErrors(*rangeOfSequence);
+        *errorArray = promptErrors(*rangeOfSequence, false);
+        *damageArray = promptErrors(*rangeOfSequence, true);
     }
     //END USER INPUT
 }
@@ -281,7 +291,7 @@ void print_stats() {
 /**
  * Transfer a file using sliding window.
  */
-int window_recv_file(char *data, size_t *data_filled, bool* errorArray) {
+int window_recv_file(char *data, size_t *data_filled, bool* errorArray, bool* damageArray) {
     ofstream dst("dst");
     char window[seq_size][MAX_DATA_SIZE];
 
@@ -319,6 +329,10 @@ int window_recv_file(char *data, size_t *data_filled, bool* errorArray) {
         } else{
             //unpack the sent frame
             frame_error = unpack_data(frame, &seq_num, data_buff, &databuff_size, &end);
+            if(damageArray != NULL && damageArray[lw]){
+                frame_error = 1;
+                damageArray[lw] = false;
+            }
             if (_DEBUG) {
                 cout << "Packet " << seq_num << " received" << endl;
                 if(frame_error){
@@ -400,7 +414,8 @@ int main(int argc, char *argv[]) {
     int sizeOfWindow = 5;
     int rangeOfSequence = 64;
     bool* errorArray;
-    promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence, &errorArray);
+    bool* damageArray;
+    promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence, &errorArray, &damageArray);
 
     MAX_DATA_SIZE = 65000;
     MAX_FRAME_SIZE = MAX_DATA_SIZE + 10;
@@ -422,7 +437,7 @@ int main(int argc, char *argv[]) {
     size_t data_filled = 0;
 
     //int total_bytes_recv = recv_file(data, &data_filled);
-    int total_bytes_recv = window_recv_file(data, &data_filled, errorArray);
+    int total_bytes_recv = window_recv_file(data, &data_filled, errorArray, damageArray);
 
     delete[] data;
     delete[] recv_size;
