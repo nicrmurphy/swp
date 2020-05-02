@@ -204,7 +204,6 @@ void print_window() {
             i = 0;
         }
         cout << i << (i != rw ? ", " : "");
-        //cout << i << ", ";
     }
     cout << "]" << endl;
 }
@@ -273,7 +272,7 @@ void check_buffer(ofstream &dst, char *data, size_t *data_filled, int databuff_s
 }
 
 void print_stats() {
-    cout << "Last packet seq# received:" << last_seq_num << endl; 
+    cout << "Last packet seq# received: " << last_seq_num << endl; 
     cout << "Number of original packets received: " << num_packets_recv << endl;
     cout << "Number of retransmitted packets: " << num_retransmitted_packets << endl;
 }
@@ -322,7 +321,7 @@ int window_recv_file(char *data, size_t *data_filled, bool* errorArray) {
             if (_DEBUG) {
                 cout << "Packet " << seq_num << " received" << endl;
                 if(frame_error){
-                    cout << "Checksum Failed" << endl;        
+                    cout << "Checksum error. Packet " << seq_num << " damaged." << endl;        
                 }else{
                     cout << "Checksum OK" << endl;
                     if (!gbn){
@@ -334,6 +333,9 @@ int window_recv_file(char *data, size_t *data_filled, bool* errorArray) {
                             send_ack(sockfd, client, addr_len, last_ack());
                         }
                     }
+                }
+                if(seq_num != lw){
+                    cout << "Packet " << seq_num << " arrived out of order. Resequencing." << endl;
                 }
             }
             if(!frame_error && !recv_size[seq_num]&& inWindow(lw,rw,seq_num)){
@@ -349,6 +351,7 @@ int window_recv_file(char *data, size_t *data_filled, bool* errorArray) {
             // cout << "received packet " << (int) seq_num << "; data: "<<databuff_size<<"; " << bytes_recv << " bytes (total: " << total_bytes_recv << ")\n";     // debug
             }else{
                 num_retransmitted_packets++;
+                if (_DEBUG) cout << "Received duplicate packet " << seq_num << ". Dropping." << endl;
             }
         }
         
