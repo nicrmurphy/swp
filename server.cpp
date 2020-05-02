@@ -84,6 +84,104 @@ bool unpack_data(char* frame, int* seq_num, char* buff, int* buff_size, bool* en
     return frame[*buff_size + 9] != checksum(frame, *buff_size + (int) 9);
 }
 
+bool* generateErrors(int sequenceRange){
+    bool* errors = (bool*)malloc(sizeof(bool) * sequenceRange); //array of bool for each sequence number
+    int chance = 10; //Out of 100 (%)
+    srand(time(NULL));
+    for(int i = 0; i < sequenceRange; i++){
+        if((rand() % 100 + 1) <= chance){ //If chance has been met
+            errors[i] = true; //Drop error at sequence number i
+        }
+    }
+    
+    return errors; //Return filled array of errors
+}
+bool* promptErrors(int sequenceRange){
+    bool* errors = (bool*)malloc(sizeof(bool) * sequenceRange);
+    string input;
+    cout << "Input sequence numbers to drop packet in space separated list (2 4 5 6 7). Only one drop packet per sequence number" << endl;
+    cout << "> ";
+    getline(cin, input);
+    getline(cin, input);
+
+    stringstream ssin(input);
+    string inputNumber;
+    int i = 0;
+    while(ssin >> inputNumber && i < sequenceRange){
+        errors[stoi(inputNumber)] = true;
+    }
+
+    return errors;
+}
+
+void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, int* sizeOfWindow, int* rangeOfSequence, bool** errorArray){
+    //START USER INPUT
+    
+    string input;
+
+    cout << "Type of protocol (GBN or SR): ";
+    getline(cin, input);
+    if(!input.empty()){
+        stringstream stream(input);
+        stream >> *protocol;
+    }
+    cout << "Packet Size (kB) (32kB default): ";
+    getline(cin, input);
+    if(!input.empty()){
+        istringstream stream(input);
+        stream >> *packetSize;
+    }
+    cout << "Timeout interval (0 for ping calculated): ";
+    getline(cin, input);
+    if(!input.empty()){
+        istringstream stream(input);
+        stream >> *timeoutInterval;
+    }
+    cout << "Size of sliding window (5 default): ";
+    getline(cin, input);
+    if(!input.empty()){
+        istringstream stream(input);
+        stream >> *sizeOfWindow;
+    }
+    cout << "Range of sequence numbers (64 default): ";
+    getline(cin, input);
+    if(!input.empty()){
+        istringstream stream(input);
+        stream >> *rangeOfSequence;
+    }
+
+    string userInput;
+    cout << "Situational Errors" << endl;
+    cout << "------------------" << endl;
+    cout << "1. None" << endl;
+    cout << "2. Randomly Generated" << endl;
+    cout << "3. User-Specified" << endl;
+    cout << "> ";
+    cin >> userInput;
+    if(userInput.compare("1") == 0){
+        *errorArray = (bool*)malloc(sizeof(bool) * (*rangeOfSequence));
+        for(int i = 0; i < *rangeOfSequence; i++){
+            (*errorArray)[i] = false;
+        }
+    } else if(userInput.compare("2") == 0){
+        *errorArray = generateErrors(*rangeOfSequence);
+    } else if(userInput.compare("3") == 0){
+        *errorArray = promptErrors(*rangeOfSequence);
+    }
+    //END USER INPUT
+}
+
+/**
+ * Returns the last received ack for GBN
+ */
+int last_ack(){
+    if(lw == 0){
+        return seq_size - 1;
+    }else{
+        return lw - 1;
+    }
+}
+
 /**
  * Returns true if the index is within the current window.
  */
@@ -215,25 +313,29 @@ int window_recv_file(char *data, size_t *data_filled, bool* errorArray) {
             continue;
         }
 
-        if(errorArray[lw]){
-            cout << "Packet " << lw << " dropped" << endl;
+        if(errorArray != NULL && errorArray[lw]){ //If should drop packet at lw
+            recv_size[lw] = 0; //Drop packet
             errorArray[lw] = false;
-            recv_size[lw] = 0;
-        } else {
+        } else{
             //unpack the sent frame
             frame_error = unpack_data(frame, &seq_num, data_buff, &databuff_size, &end);
             if (_DEBUG) {
-                
                 cout << "Packet " << seq_num << " received" << endl;
                 if(frame_error){
                     cout << "Checksum Failed" << endl;        
                 }else{
                     cout << "Checksum OK" << endl;
-                    if (!gbn) send_ack(sockfd, client, addr_len, seq_num);
+                    if (!gbn){
+                        send_ack(sockfd, client, addr_len, seq_num);
+                    }else{
+                        if(inWindow(lw,rw,seq_num)){
+                            send_ack(sockfd, client, addr_len, seq_num);
+                        }else{
+                            send_ack(sockfd, client, addr_len, last_ack());
+                        }
+                    }
                 }
             }
-            
-            //only copy data into the window if it has not been received yet and it's crc passes
             if(!frame_error && !recv_size[seq_num]&& inWindow(lw,rw,seq_num)){
                 memcpy(window[seq_num], data_buff, databuff_size);
                 recv_size[seq_num] = databuff_size;
@@ -252,14 +354,12 @@ int window_recv_file(char *data, size_t *data_filled, bool* errorArray) {
         
         // shift the window if needed
         while (recv_size[lw]) {
-            if (gbn) send_ack(sockfd, client, addr_len, lw);
-
             lw = (lw + 1) % seq_size;
             rw = (rw + 1) % seq_size;
             if (_DEBUG) print_window();
             //write data to the buffer when rw is max or lw is min
             if(!end && (rw == seq_size - 1 || lw == 0)){
-                    for (int i = 0; i < seq_size; i++){
+                for (int i = 0; i < seq_size; i++){
                     if(!inWindow(lw,rw,i) && recv_size[i] ){
                         check_buffer(dst, data, data_filled, databuff_size);
                         memcpy(data + *data_filled, window[i], recv_size[i]);
@@ -268,7 +368,8 @@ int window_recv_file(char *data, size_t *data_filled, bool* errorArray) {
                         recv_size[i] = 0;
                     }
                 }
-            }               
+            }
+                   
         }   
         //write out ending data to the buffer
         if(foundEnd && !inWindow(lw,rw,last_seq_num) && last_seq_num >= 0){
@@ -287,94 +388,9 @@ int window_recv_file(char *data, size_t *data_filled, bool* errorArray) {
             dst.close();
         }
     }
+    
     return total_bytes_recv;
 }
-
-bool* generateErrors(int sequenceRange){
-    bool* errors = (bool*)malloc(sizeof(bool) * sequenceRange); //array of bool for each sequence number
-    int chance = 10; //Out of 100 (%)
-    srand(time(NULL));
-    for(int i = 0; i < sequenceRange; i++){
-        if((rand() % 100 + 1) <= chance){ //If chance has been met
-            errors[i] = true; //Drop error at sequence number i
-        }
-    }
-    
-    return errors; //Return filled array of errors
-}
-bool* promptErrors(int sequenceRange){
-    bool* errors = (bool*)malloc(sizeof(bool) * sequenceRange);
-    string input;
-    cout << "Input sequence numbers to drop packet in space separated list (2 4 5 6 7). Only one drop packet per sequence number" << endl;
-    cout << "> ";
-    getline(cin, input);
-    getline(cin, input);
-
-    stringstream ssin(input);
-    string inputNumber;
-    int i = 0;
-    while(ssin >> inputNumber && i < sequenceRange){
-        errors[stoi(inputNumber)] = true;
-    }
-
-    return errors;
-}
-
-void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, int* sizeOfWindow, int* rangeOfSequence, bool** errorArray){
-    //START USER INPUT
-    
-    string input;
-
-    cout << "Type of protocol (GBN or SR): ";
-    getline(cin, input);
-    if(!input.empty()){
-        stringstream stream(input);
-        stream >> *protocol;
-    }
-    cout << "Packet Size (kB) (32kB default): ";
-    getline(cin, input);
-    if(!input.empty()){
-        istringstream stream(input);
-        stream >> *packetSize;
-    }
-    cout << "Timeout interval (0 for ping calculated): ";
-    getline(cin, input);
-    if(!input.empty()){
-        istringstream stream(input);
-        stream >> *timeoutInterval;
-    }
-    cout << "Size of sliding window (5 default): ";
-    getline(cin, input);
-    if(!input.empty()){
-        istringstream stream(input);
-        stream >> *sizeOfWindow;
-    }
-    cout << "Range of sequence numbers (64 default): ";
-    getline(cin, input);
-    if(!input.empty()){
-        istringstream stream(input);
-        stream >> *rangeOfSequence;
-    }
-
-    cout << *rangeOfSequence << endl;
-
-
-    string userInput;
-    cout << "Situational Errors" << endl;
-    cout << "------------------" << endl;
-    cout << "1. None" << endl;
-    cout << "2. Randomly Generated" << endl;
-    cout << "3. User-Specified" << endl;
-    cout << "> ";
-    cin >> userInput;
-    if(userInput.compare("2") == 0){
-        *errorArray = generateErrors(*rangeOfSequence);
-    } else if(userInput.compare("3") == 0){
-        *errorArray = promptErrors(*rangeOfSequence);
-    }
-    //END USER INPUT
-}
-
 
 
 int main(int argc, char *argv[]) {
@@ -384,13 +400,12 @@ int main(int argc, char *argv[]) {
     int sizeOfWindow = 5;
     int rangeOfSequence = 64;
     bool* errorArray;
-
     promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence, &errorArray);
 
     MAX_DATA_SIZE = 65000;
     MAX_FRAME_SIZE = MAX_DATA_SIZE + 10;
     window_size = 7;
-    gbn = true;
+    gbn = false;
     //Recv window will always be 1 with GBN
     if(gbn){
         window_size = 1;
