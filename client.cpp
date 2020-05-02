@@ -433,8 +433,8 @@ void print_stats(clock_t start_time) {
     auto elapsed_ms = end_time - start_time;
     double elapsed_sec = elapsed_ms / 1000.0f;
     cout << "Total elapsed time: " << elapsed_sec << endl;
-    cout << "Total throughput (Mbps): " << data_len / elapsed_sec / (1024*1024) << endl;
-    cout << "Effective throughput: " << endl;
+    cout << "Total throughput (Mbps): " << (num_packets_sent + num_packets_resent) * MAX_FRAME_SIZE / elapsed_sec / (1024*1024) << endl;
+    cout << "Effective throughput: " << (num_packets_sent) * MAX_FRAME_SIZE / elapsed_sec / (1024*1024) << endl;
 }
 
 int main(int argc, char *argv[]) {
