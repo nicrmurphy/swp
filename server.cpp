@@ -87,7 +87,7 @@ bool unpack_data(char* frame, int* seq_num, char* buff, int* buff_size, bool* en
 bool* generateErrors(int sequenceRange){
     bool* errors = (bool*)malloc(sizeof(bool) * sequenceRange); //array of bool for each sequence number
     int chance = 10; //Out of 100 (%)
-    srand(time(NULL));
+    
     for(int i = 0; i < sequenceRange; i++){
         if((rand() % 100 + 1) <= chance){ //If chance has been met
             errors[i] = true; //Drop error at sequence number i
@@ -96,12 +96,14 @@ bool* generateErrors(int sequenceRange){
     
     return errors; //Return filled array of errors
 }
-bool* promptErrors(int sequenceRange){
+
+bool* promptErrors(int sequenceRange, bool damage){
     bool* errors = (bool*)malloc(sizeof(bool) * sequenceRange);
     string input;
-    cout << "Input sequence numbers to drop packet in space separated list (2 4 5 6 7). Only one drop packet per sequence number" << endl;
+    
+
+    cout << "Input sequence numbers to " << (damage ? "damage" : "drop") << " packet in space separated list (2 4 5 6 7). Only one " << (damage ? "damaged" : "dropped") << " packet per sequence number" << endl;
     cout << "> ";
-    getline(cin, input);
     getline(cin, input);
 
     stringstream ssin(input);
@@ -114,7 +116,7 @@ bool* promptErrors(int sequenceRange){
     return errors;
 }
 
-void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, int* sizeOfWindow, int* rangeOfSequence, bool** errorArray){
+void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, int* sizeOfWindow, int* rangeOfSequence, bool** errorArray, bool** damageArray){
     //START USER INPUT
     
     string input;
@@ -157,16 +159,23 @@ void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, in
     cout << "2. Randomly Generated" << endl;
     cout << "3. User-Specified" << endl;
     cout << "> ";
-    cin >> userInput;
+    getline(cin, userInput);
     if(userInput.compare("1") == 0){
         *errorArray = (bool*)malloc(sizeof(bool) * (*rangeOfSequence));
         for(int i = 0; i < *rangeOfSequence; i++){
             (*errorArray)[i] = false;
         }
+
+        *damageArray = (bool*)malloc(sizeof(bool) * (*rangeOfSequence));
+        for(int i = 0; i < *rangeOfSequence; i++){
+            (*damageArray)[i] = false;
+        }
     } else if(userInput.compare("2") == 0){
         *errorArray = generateErrors(*rangeOfSequence);
+        *damageArray = generateErrors(*rangeOfSequence);
     } else if(userInput.compare("3") == 0){
-        *errorArray = promptErrors(*rangeOfSequence);
+        *errorArray = promptErrors(*rangeOfSequence, false);
+        *damageArray = promptErrors(*rangeOfSequence, true);
     }
     //END USER INPUT
 }
@@ -280,7 +289,7 @@ void print_stats() {
 /**
  * Transfer a file using sliding window.
  */
-int window_recv_file(char *data, size_t *data_filled, bool* errorArray) {
+int window_recv_file(char *data, size_t *data_filled, bool* errorArray, bool* damageArray) {
     ofstream dst("dst");
     char window[seq_size][MAX_DATA_SIZE];
 
@@ -312,12 +321,20 @@ int window_recv_file(char *data, size_t *data_filled, bool* errorArray) {
             continue;
         }
 
-        if(errorArray != NULL && errorArray[lw]){ //If should drop packet at lw
-            recv_size[lw] = 0; //Drop packet
-            errorArray[lw] = false;
+        frame_error = unpack_data(frame, &seq_num, data_buff, &databuff_size, &end);
+
+        cout << seq_num << endl;;
+        if(errorArray != NULL && errorArray[seq_num]){ //If should drop packet at lw
+            cout << "Packet " << seq_num << " dropped" << endl;
+            recv_size[seq_num] = 0; //Drop packet
+            errorArray[seq_num] = false;
         } else{
             //unpack the sent frame
-            frame_error = unpack_data(frame, &seq_num, data_buff, &databuff_size, &end);
+            if(damageArray != NULL && damageArray[seq_num]){
+                cout << "DAMAGED" << endl;
+                frame_error = 1;
+                damageArray[seq_num] = false;
+            }
             if (_DEBUG) {
                 cout << "Packet " << seq_num << " received" << endl;
                 if(frame_error){
@@ -357,21 +374,22 @@ int window_recv_file(char *data, size_t *data_filled, bool* errorArray) {
         
         // shift the window if needed
         while (recv_size[lw]) {
-                lw = (lw + 1) % seq_size;
-                rw = (rw + 1) % seq_size;
-                if (_DEBUG) print_window();
-                //write data to the buffer when rw is max or lw is min
-                if(!end && (rw == seq_size - 1 || lw == 0)){
-                    for (int i = 0; i < seq_size; i++){
-                        if(!inWindow(lw,rw,i) && recv_size[i] ){
-                            check_buffer(dst, data, data_filled, databuff_size);
-                            memcpy(data + *data_filled, window[i], recv_size[i]);
-                            *data_filled += recv_size[i];
-                            // zero out the received array to signal it's empty
-                            recv_size[i] = 0;
-                        }
+            lw = (lw + 1) % seq_size;
+            rw = (rw + 1) % seq_size;
+            if (_DEBUG) print_window();
+            //write data to the buffer when rw is max or lw is min
+            if(!end && (rw == seq_size - 1 || lw == 0)){
+                for (int i = 0; i < seq_size; i++){
+                    if(!inWindow(lw,rw,i) && recv_size[i] ){
+                        check_buffer(dst, data, data_filled, databuff_size);
+                        memcpy(data + *data_filled, window[i], recv_size[i]);
+                        *data_filled += recv_size[i];
+                        // zero out the received array to signal it's empty
+                        recv_size[i] = 0;
                     }
-                }               
+                }
+            }
+                   
         }   
         //write out ending data to the buffer
         if(foundEnd && !inWindow(lw,rw,last_seq_num) && last_seq_num >= 0){
@@ -394,6 +412,7 @@ int window_recv_file(char *data, size_t *data_filled, bool* errorArray) {
     return total_bytes_recv;
 }
 
+
 int main(int argc, char *argv[]) {
     string protocol;
     int packetSize = 32000;
@@ -401,7 +420,16 @@ int main(int argc, char *argv[]) {
     int sizeOfWindow = 5;
     int rangeOfSequence = 64;
     bool* errorArray;
-    promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence, &errorArray);
+    bool* damageArray;
+    srand(time(NULL));
+    promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence, &errorArray, &damageArray);
+
+    for(int i = 0; i < rangeOfSequence; i++){
+        if(errorArray[i]) cout << i << " ";
+        if(damageArray[i]) cout << i << " ";
+    }
+
+    cout << endl;
 
     MAX_DATA_SIZE = 65000;
     MAX_FRAME_SIZE = MAX_DATA_SIZE + 10;
@@ -412,7 +440,7 @@ int main(int argc, char *argv[]) {
         window_size = 1;
     }
     //Seq_size must be the same as in client
-    seq_size = 20;
+    seq_size = 64;
     //Used to record the size of each packet. 0 if the window is ready to be filled
     recv_size = new int[seq_size];
     rw = window_size - 1;
@@ -423,7 +451,7 @@ int main(int argc, char *argv[]) {
     size_t data_filled = 0;
 
     //int total_bytes_recv = recv_file(data, &data_filled);
-    int total_bytes_recv = window_recv_file(data, &data_filled, errorArray);
+    int total_bytes_recv = window_recv_file(data, &data_filled, errorArray, damageArray);
 
     delete[] data;
     delete[] recv_size;
