@@ -328,39 +328,37 @@ int window_recv_file(char *data, size_t *data_filled, bool* errorArray, bool* da
                 frame_error = 1;
                 damageArray[seq_num] = false;
             }
-
-
-            if(_DEBUG){
-                if(inWindow(lw,rw, seq_num) && recv_size[seq_num]){
-                    cout << "Received duplicate packet " << seq_num << ". Dropping." << endl;
-                }else{
-                    cout << "Packet " << seq_num << " received" << endl;
-                    if(seq_num != lw && inWindow(lw,rw,seq_num)){
-                        cout << "Packet " << seq_num << " arrived out of order. Resequencing." << endl;
-                    }
-                }
-            }
-            
-
-            if(frame_error){
-                if(_DEBUG) cout << "Checksum error. Packet " << seq_num << " damaged." << endl;        
-            }else{
-                if(_DEBUG && inWindow(lw,rw,seq_num)){
-                    cout << "Checksum OK" << endl;
-                }
-                if (!gbn){
-                    send_ack(sockfd, client, addr_len, seq_num);
-                }else{
-                    if(inWindow(lw,rw,seq_num)){
-                        send_ack(sockfd, client, addr_len, seq_num);
+            //server printouts
+            if(inWindow(lw,rw,seq_num)){
+                if(_DEBUG){
+                    if(recv_size[seq_num] ){
+                            cout << "Received duplicate packet " << seq_num << "." << endl;
                     }else{
-                        send_ack(sockfd, client, addr_len, last_ack());
+                        cout << "Packet " << seq_num << " received" << endl;
+                        if(seq_num != lw){
+                            cout << "Packet " << seq_num << " arrived out of order. Resequencing." << endl;
+                        }
                     }
                 }
+                //if checksum passes, send ack
+                if(frame_error && !recv_size[seq_num]){
+                    if(_DEBUG) cout << "Checksum error. Packet " << seq_num << " damaged." << endl;        
+                }else{
+                    if(_DEBUG && !recv_size[seq_num]){
+                        cout << "Checksum OK" << endl;
+                    }
+                    send_ack(sockfd, client, addr_len, seq_num); 
+                }
+            //Ack sending for duplicate values or outside of the window
+            }else{
+                if(_DEBUG && gbn) cout << "Packet " << seq_num << " received. Out of window." << endl;
+                else if(_DEBUG) cout << "Received duplicate packet " << seq_num << "." << endl;
+                if(gbn){
+                    send_ack(sockfd, client, addr_len, last_ack());
+                }else{
+                    send_ack(sockfd, client, addr_len, seq_num); 
+                }
             }
-
-
-
 
             if(!frame_error && !recv_size[seq_num]&& inWindow(lw,rw,seq_num)){
                 memcpy(window[seq_num], data_buff, databuff_size);
