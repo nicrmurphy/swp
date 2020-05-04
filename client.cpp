@@ -19,8 +19,6 @@
 #include "ThreadPool.h"
 
 #define PORT "9898"
-#define MAX_DATA_SIZE 65000
-#define MAX_FRAME_SIZE 65010 // to hold extra header data
 
 #ifndef _DEBUG
 #define _DEBUG true
@@ -28,6 +26,8 @@
 
 using namespace std;
 
+long MAX_DATA_SIZE;
+long MAX_FRAME_SIZE;
 int sockfd;
 char *filepath;
 int window_size;
@@ -143,7 +143,7 @@ bool* generateErrors(int sequenceRange){
 bool* promptErrors(int sequenceRange){
     bool* errors = (bool*)malloc(sizeof(bool) * sequenceRange);
     string input;
-    cout << "Input sequence numbers to drop packet in space separated list (2 4 5 6 7). Only one drop packet per sequence number" << endl;
+    cout << "Input sequence numbers to drop ack in space separated list (2 4 5 6 7). Only one drop ack per sequence number" << endl;
     cout << "> ";
     getline(cin, input);
 
@@ -157,42 +157,36 @@ bool* promptErrors(int sequenceRange){
     return errors;
 }
 
-void promptUserInput(string* hostIP, string* protocol, int* packetSize, int* timeoutInterval, int* sizeOfWindow, int* rangeOfSequence, bool** errorArray){
+void promptUserInput(string* protocol, long* packetSize, int* timeoutInterval, int* sizeOfWindow, int* rangeOfSequence, bool** errorArray){
     //START USER INPUT
     
     string input;
 
-    cout << "Host IP";
-    getline(cin, input);
-    if(!input.empty()){
-        stringstream stream(input);
-        stream >> *hostIP;
-    }
-    cout << "Type of protocol (GBN or SR): ";
+    cout << "Type of protocol (GBN or SR) (SR default): ";
     getline(cin, input);
     if(!input.empty()){
         stringstream stream(input);
         stream >> *protocol;
     }
-    cout << "Packet Size (kB) (32kB default): ";
+    cout << "Packet Size (B) (65010 B default): ";
     getline(cin, input);
     if(!input.empty()){
         istringstream stream(input);
         stream >> *packetSize;
     }
-    cout << "Timeout interval (0 for ping calculated): ";
+    cout << "Timeout interval (ms) (10 default): ";
     getline(cin, input);
     if(!input.empty()){
         istringstream stream(input);
         stream >> *timeoutInterval;
     }
-    cout << "Size of sliding window (5 default): ";
+    cout << "Size of sliding window (7 default): ";
     getline(cin, input);
     if(!input.empty()){
         istringstream stream(input);
         stream >> *sizeOfWindow;
     }
-    cout << "Range of sequence numbers (64 default): ";
+    cout << "Range of sequence numbers (20 default): ";
     getline(cin, input);
     if(!input.empty()){
         istringstream stream(input);
@@ -393,7 +387,7 @@ void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo, bool *errorA
         // cout << "check if need to resend window: (" << now - lfs_ts << " >= " << gbn_timeout << ")" << endl;
         if (now - lfs_ts >= gbn_timeout) {
             // resend window
-            if (_DEBUG) cout << "Window *****Timed Out *****" << endl;
+            if (_DEBUG && resend) cout << "Window *****Timed Out *****" << endl;
             if (data_pos >= data_len) break;
             send_window(servinfo, data, resend);
             resend = true;
@@ -434,15 +428,13 @@ void print_stats(clock_t start_time) {
 }
 
 int main(int argc, char *argv[]) {
-    string hostIP;
     string protocol;
-    int packetSize = 32000;
-    int timeoutInterval;
-    int sizeOfWindow = 5;
-    int rangeOfSequence = 64;
+    MAX_FRAME_SIZE = 65010;
+    int timeoutInterval = 10;
+    int sizeOfWindow = 7;
+    int rangeOfSequence = 20;
     bool* errorArray;
     
-    promptUserInput(&hostIP, &protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence, &errorArray);
     if (argc != 3) {
         fprintf(stderr, "usage: %s hostname filepath\n", argv[0]);
         fprintf(stderr, "ex: %s thing2 src\n", argv[0]);
@@ -451,12 +443,17 @@ int main(int argc, char *argv[]) {
     char *host = argv[1];
     filepath = argv[2];
     window_size = 7;
-    seq_size = 64;
+    seq_size = 20;
     acked = new bool[window_size];
     memset(acked, 0, window_size);
-    gbn = false;
-    if (gbn) gbn_timeout = 10;    // in ms
-
+    promptUserInput(&protocol, &MAX_FRAME_SIZE, &timeoutInterval, &sizeOfWindow, &rangeOfSequence, &errorArray);
+    MAX_DATA_SIZE = MAX_FRAME_SIZE - 10;
+    gbn = strcmp(protocol.c_str(), "GBN") == 0;
+    if (gbn) gbn_timeout = timeoutInterval;    // in ms
+    window_size = sizeOfWindow;
+    seq_size = rangeOfSequence;
+    cout << "window_size: " << window_size << endl;
+    cout << "seq_size: " << seq_size << endl;
     // prepare socket
     struct addrinfo hints, *servinfo, *clientinfo;
     memset(&hints, 0, sizeof hints);

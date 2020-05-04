@@ -32,6 +32,7 @@ int *recv_size; //Used to record the size of each packet in window. 0 if the win
 int lw = 0;
 int rw;
 int last_seq_num = -1;
+string filepath;
 
 int num_packets_recv;
 int num_retransmitted_packets;
@@ -116,36 +117,30 @@ bool* promptErrors(int sequenceRange, bool damage){
     return errors;
 }
 
-void promptUserInput(string* protocol, int* packetSize, int* timeoutInterval, int* sizeOfWindow, int* rangeOfSequence, bool** errorArray, bool** damageArray){
+void promptUserInput(string* protocol, int* packetSize, int* sizeOfWindow, int* rangeOfSequence, bool** errorArray, bool** damageArray){
     //START USER INPUT
     
     string input;
 
-    cout << "Type of protocol (GBN or SR): ";
+    cout << "Type of protocol (GBN or SR) (SR default): ";
     getline(cin, input);
     if(!input.empty()){
         stringstream stream(input);
         stream >> *protocol;
     }
-    cout << "Packet Size (kB) (32kB default): ";
+    cout << "Packet Size (B) (65010 B default): ";
     getline(cin, input);
     if(!input.empty()){
         istringstream stream(input);
         stream >> *packetSize;
     }
-    cout << "Timeout interval (0 for ping calculated): ";
-    getline(cin, input);
-    if(!input.empty()){
-        istringstream stream(input);
-        stream >> *timeoutInterval;
-    }
-    cout << "Size of sliding window (5 default): ";
+    cout << "Size of sliding window (7 default): ";
     getline(cin, input);
     if(!input.empty()){
         istringstream stream(input);
         stream >> *sizeOfWindow;
     }
-    cout << "Range of sequence numbers (64 default): ";
+    cout << "Range of sequence numbers (20 default): ";
     getline(cin, input);
     if(!input.empty()){
         istringstream stream(input);
@@ -290,7 +285,7 @@ void print_stats() {
  * Transfer a file using sliding window.
  */
 int window_recv_file(char *data, size_t *data_filled, bool* errorArray, bool* damageArray) {
-    ofstream dst("dst");
+    ofstream dst(filepath);
     char window[seq_size][MAX_DATA_SIZE];
 
     sockaddr_storage client;
@@ -323,35 +318,34 @@ int window_recv_file(char *data, size_t *data_filled, bool* errorArray, bool* da
 
         frame_error = unpack_data(frame, &seq_num, data_buff, &databuff_size, &end);
 
-        cout << seq_num << endl;;
-        if(errorArray != NULL && errorArray[seq_num]){ //If should drop packet at lw
+        if(errorArray != NULL && errorArray[seq_num] && inWindow(lw,rw,seq_num)){ //If should drop packet at lw
             cout << "Packet " << seq_num << " dropped" << endl;
             recv_size[seq_num] = 0; //Drop packet
             errorArray[seq_num] = false;
         } else{
             //unpack the sent frame
             if(damageArray != NULL && damageArray[seq_num]){
-                cout << "DAMAGED" << endl;
                 frame_error = 1;
                 damageArray[seq_num] = false;
             }
-            if (_DEBUG) {
-                cout << "Packet " << seq_num << " received" << endl;
-                if(frame_error){
-                    cout << "Checksum error. Packet " << seq_num << " damaged." << endl;        
+            cout << "Packet " << seq_num << " received" << endl;
+            if(frame_error){
+                cout << "Checksum error. Packet " << seq_num << " damaged." << endl;        
+            }else{
+                cout << "Checksum OK" << endl;
+                if (!gbn){
+                    send_ack(sockfd, client, addr_len, seq_num);
                 }else{
-                    cout << "Checksum OK" << endl;
-                    if (!gbn){
+                    if(inWindow(lw,rw,seq_num)){
                         send_ack(sockfd, client, addr_len, seq_num);
                     }else{
-                        if(inWindow(lw,rw,seq_num)){
-                            send_ack(sockfd, client, addr_len, seq_num);
-                        }else{
-                            send_ack(sockfd, client, addr_len, last_ack());
-                        }
+                        send_ack(sockfd, client, addr_len, last_ack());
                     }
                 }
-                if(seq_num != lw){
+                if(recv_size[seq_num]){
+                    if (_DEBUG) cout << "Received duplicate packet " << seq_num << ". Dropping." << endl;
+                    //num_retransmitted_packets++;
+                }else if(seq_num != lw && inWindow(lw,rw,seq_num)){
                     cout << "Packet " << seq_num << " arrived out of order. Resequencing." << endl;
                 }
             }
@@ -366,9 +360,10 @@ int window_recv_file(char *data, size_t *data_filled, bool* errorArray, bool* da
                     foundEnd = true;
                 }
             // cout << "received packet " << (int) seq_num << "; data: "<<databuff_size<<"; " << bytes_recv << " bytes (total: " << total_bytes_recv << ")\n";     // debug
-            }else{
+            }
+            else{
                 num_retransmitted_packets++;
-                if (_DEBUG) cout << "Received duplicate packet " << seq_num << ". Dropping." << endl;
+                //if (_DEBUG) cout << "Received duplicate packet " << seq_num << ". Dropping." << endl;
             }
         }
         
@@ -403,7 +398,7 @@ int window_recv_file(char *data, size_t *data_filled, bool* errorArray, bool* da
                 }
             } 
             write_file(dst, data, *data_filled);    // write remainder of buffer to file
-            cout << "Received File in " << num_packets_recv << " packets. Closing" << endl;
+            //cout << "Received File in " << num_packets_recv << " packets. Closing" << endl;
             file_end = true;
             dst.close();
         }
@@ -414,37 +409,38 @@ int window_recv_file(char *data, size_t *data_filled, bool* errorArray, bool* da
 
 
 int main(int argc, char *argv[]) {
-    string protocol;
-    int packetSize = 32000;
-    int timeoutInterval;
-    int sizeOfWindow = 5;
-    int rangeOfSequence = 64;
+    if (argc != 2) {
+        fprintf(stderr, "usage: %s filepath\n", argv[0]);
+        fprintf(stderr, "ex: %s /tmp/dst\n", argv[0]);
+        exit(1);
+    }
+    filepath = argv[1];
+    string protocol("SR");
+    int packetSize = 65010;
+    int sizeOfWindow = 7;
+    int rangeOfSequence = 20;
     bool* errorArray;
     bool* damageArray;
     srand(time(NULL));
-    promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence, &errorArray, &damageArray);
+    promptUserInput(&protocol, &packetSize, &sizeOfWindow, &rangeOfSequence, &errorArray, &damageArray);
 
-    for(int i = 0; i < rangeOfSequence; i++){
-        if(errorArray[i]) cout << i << " ";
-        if(damageArray[i]) cout << i << " ";
-    }
-
-    cout << endl;
-
-    MAX_DATA_SIZE = 65000;
-    MAX_FRAME_SIZE = MAX_DATA_SIZE + 10;
+    MAX_FRAME_SIZE = packetSize;
+    MAX_DATA_SIZE = MAX_FRAME_SIZE - 10;
     window_size = 7;
-    gbn = false;
+    seq_size = 20;
+    gbn = strcmp(protocol.c_str(), "GBN") == 0;
+    window_size = sizeOfWindow;
+    seq_size = rangeOfSequence;
     //Recv window will always be 1 with GBN
     if(gbn){
         window_size = 1;
     }
     //Seq_size must be the same as in client
-    seq_size = 64;
     //Used to record the size of each packet. 0 if the window is ready to be filled
     recv_size = new int[seq_size];
     rw = window_size - 1;
-    //promptUserInput(&protocol, &packetSize, &timeoutInterval, &sizeOfWindow, &rangeOfSequence);
+    cout << "window_size: " << window_size << endl;
+    cout << "seq_size: " << seq_size << endl;
     create_socket();
 
     char *data = new char[MAX_DATA_SIZE*8];
@@ -458,7 +454,7 @@ int main(int argc, char *argv[]) {
 
     // char client_addr[INET6_ADDRSTRLEN];
     // inet_ntop(client.ss_family, get_in_addr((struct sockaddr *) &client), client_addr, sizeof client_addr);
-    cout << "received " << total_bytes_recv << " bytes\n";
+    //cout << "received " << total_bytes_recv << " bytes\n";
 
     print_stats();
     close(sockfd);
