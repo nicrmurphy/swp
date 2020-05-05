@@ -230,16 +230,13 @@ void promptUserInput(string* protocol, long* packetSize, int* timeoutInterval, i
     if(!input.empty()){
         while(*errorArray == NULL){
             if(input.compare("1") == 0){
-                cout << "1" << endl;
                 *errorArray = (bool*)malloc(sizeof(bool) * (*rangeOfSequence));
                 for(int i = 0; i < *rangeOfSequence; i++){
                     (*errorArray)[i] = false;
                 }
             } else if(input.compare("2") == 0){
                 *errorArray = generateErrors(*rangeOfSequence);
-                cout << "2" << endl;
             } else if(input.compare("3") == 0){
-                cout << "3" << endl;
                 *errorArray = promptErrors(*rangeOfSequence);
             } else{
                 cout << "Invalid input. Try again." << endl;
