@@ -180,7 +180,7 @@ void promptUserInput(string* protocol, long* packetSize, int* timeoutInterval, i
         istringstream stream(input);
         stream >> *timeoutInterval;
     }
-    cout << "Size of sliding window (7 default): ";
+    cout << "Size of sliding window (5 default): ";
     getline(cin, input);
     if(!input.empty()){
         istringstream stream(input);
@@ -263,6 +263,7 @@ void packet_sender(addrinfo *servinfo, char *data, const long data_pos, const lo
 
     // bool resend = false;        // flag if packet is sent more than once
     int timeout_ms = 10;        // time in ms before packet is resent
+    int send_count = 0;
     while (true) {
         window_mutex.lock();
         // exit if requested packet is outside the window
@@ -271,6 +272,13 @@ void packet_sender(addrinfo *servinfo, char *data, const long data_pos, const lo
             acked[(info.data_loc / MAX_DATA_SIZE) % window_size]
         ) break;
         if (_DEBUG && !gbn && resend) cout << "Packet " << info.seq_num << " *****Timed Out *****" << endl;
+        if (send_count >= 10) {
+            if (_DEBUG) cout << "Packet " << info.seq_num << " sent " << send_count << " times - closing." << endl;
+            done_mutex.lock();
+            program_done = true;
+            done_mutex.unlock();
+            break;
+        }
         send_packet(servinfo, packet_data, &info, resend);
         if (gbn) {
             lfs_ts = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
@@ -281,6 +289,7 @@ void packet_sender(addrinfo *servinfo, char *data, const long data_pos, const lo
         resend = true;
         this_thread::sleep_for(chrono::milliseconds(timeout_ms));
         timeout_ms <<= 1;
+        send_count++;
     }
     // cout << "closing thread for " << seq_num << endl;
     window_mutex.unlock();
@@ -343,7 +352,7 @@ void send_window(addrinfo *servinfo, char *data, const bool resend) {
     long rw = min(data_pos + (window_size * MAX_DATA_SIZE), data_len);
     for (long data_loc = data_pos; data_loc < rw; data_loc += MAX_DATA_SIZE) {
         pool.enqueue(packet_sender, servinfo, data, data_pos, data_loc - data_pos, resend);
-        this_thread::sleep_for(chrono::milliseconds(1));
+        this_thread::sleep_for(chrono::microseconds(100));
     }
 }
 
@@ -381,19 +390,35 @@ void window_transfer_file(addrinfo *clientinfo, addrinfo *servinfo, bool *errorA
 
     if (gbn) pool.enqueue(recv_ack, clientinfo, data, servinfo, errorArray);
     bool resend = false;
+    int send_count = 0;
+    long prev_data_pos = 0;
+    int timeout_ms = gbn_timeout;
     while (gbn) {
         window_mutex.lock();
         auto now = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
         // cout << "check if need to resend window: (" << now - lfs_ts << " >= " << gbn_timeout << ")" << endl;
-        if (now - lfs_ts >= gbn_timeout) {
+        if (now - lfs_ts >= timeout_ms) {
             // resend window
             if (_DEBUG && resend) cout << "Window *****Timed Out *****" << endl;
             if (data_pos >= data_len) break;
             send_window(servinfo, data, resend);
             resend = true;
+            if (prev_data_pos == data_pos) {
+                send_count++;
+                timeout_ms <<= 1;
+            }
+            else {
+                send_count = 1;
+                timeout_ms = gbn_timeout;
+            }
+            prev_data_pos = data_pos;
+            if (send_count >= 10) {
+                if (_DEBUG) cout << "Window sent " << send_count << " times - closing." << endl;
+                break;
+            }
             window_mutex.unlock();
             // cout << "sleeping for " << gbn_timeout << " ms" << endl;
-            this_thread::sleep_for(chrono::milliseconds(gbn_timeout));
+            this_thread::sleep_for(chrono::milliseconds(timeout_ms));
         } else {
             window_mutex.unlock();
             // cout << "sleeping for " << gbn_timeout - (now - lfs_ts) << " ms" << endl;
@@ -442,7 +467,7 @@ int main(int argc, char *argv[]) {
     }
     char *host = argv[1];
     filepath = argv[2];
-    window_size = 7;
+    window_size = 5;
     seq_size = 20;
     acked = new bool[window_size];
     memset(acked, 0, window_size);
@@ -452,8 +477,6 @@ int main(int argc, char *argv[]) {
     if (gbn) gbn_timeout = timeoutInterval;    // in ms
     window_size = sizeOfWindow;
     seq_size = rangeOfSequence;
-    cout << "window_size: " << window_size << endl;
-    cout << "seq_size: " << seq_size << endl;
     // prepare socket
     struct addrinfo hints, *servinfo, *clientinfo;
     memset(&hints, 0, sizeof hints);

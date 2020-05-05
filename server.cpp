@@ -134,7 +134,7 @@ void promptUserInput(string* protocol, int* packetSize, int* sizeOfWindow, int* 
         istringstream stream(input);
         stream >> *packetSize;
     }
-    cout << "Size of sliding window (7 default): ";
+    cout << "Size of sliding window (5 default): ";
     getline(cin, input);
     if(!input.empty()){
         istringstream stream(input);
@@ -437,7 +437,7 @@ int main(int argc, char *argv[]) {
 
     MAX_FRAME_SIZE = packetSize;
     MAX_DATA_SIZE = MAX_FRAME_SIZE - 10;
-    window_size = 7;
+    window_size = 5;
     seq_size = 20;
     gbn = strcmp(protocol.c_str(), "GBN") == 0;
     window_size = sizeOfWindow;
@@ -450,8 +450,6 @@ int main(int argc, char *argv[]) {
     //Used to record the size of each packet. 0 if the window is ready to be filled
     recv_size = new int[seq_size];
     rw = window_size - 1;
-    cout << "window_size: " << window_size << endl;
-    cout << "seq_size: " << seq_size << endl;
     create_socket();
 
     char *data = new char[MAX_DATA_SIZE*8];
