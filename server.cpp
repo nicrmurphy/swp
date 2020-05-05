@@ -511,6 +511,9 @@ int main(int argc, char *argv[]) {
 
     delete[] data;
     delete[] recv_size;
+    delete[] errorArray;
+    delete[] damageArray;
+
 
     // char client_addr[INET6_ADDRSTRLEN];
     // inet_ntop(client.ss_family, get_in_addr((struct sockaddr *) &client), client_addr, sizeof client_addr);
