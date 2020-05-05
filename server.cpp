@@ -336,8 +336,11 @@ void print_stats() {
  */
 int window_recv_file(char *data, size_t *data_filled, bool* errorArray, bool* damageArray) {
     ofstream dst(filepath);
-    char window[seq_size][MAX_DATA_SIZE];
-
+    char *window[seq_size];
+    for (int i = 0; i < seq_size; i++)
+    {
+        window[i] = new char[MAX_DATA_SIZE];
+    }
     sockaddr_storage client;
     socklen_t addr_len = sizeof client;
     char frame[MAX_FRAME_SIZE];
@@ -464,6 +467,12 @@ int window_recv_file(char *data, size_t *data_filled, bool* errorArray, bool* da
             dst.close();
         }
     }
+    for (int i = 0; i < seq_size; i++)
+    {
+        delete[] window[i];
+    }
+
+    
     
     return total_bytes_recv;
 }
