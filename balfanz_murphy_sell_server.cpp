@@ -487,7 +487,7 @@ int main(int argc, char *argv[]) {
     filepath = argv[1];
     string protocol("SR");
     int packetSize = 65010;
-    int sizeOfWindow = 7;
+    int sizeOfWindow = 5;
     int rangeOfSequence = 20;
     bool* errorArray = NULL;
     bool* damageArray;
@@ -496,11 +496,13 @@ int main(int argc, char *argv[]) {
 
     MAX_FRAME_SIZE = packetSize;
     MAX_DATA_SIZE = MAX_FRAME_SIZE - 10;
-    window_size = 5;
-    seq_size = 20;
     gbn = strcmp(protocol.c_str(), "GBN") == 0;
     window_size = sizeOfWindow;
     seq_size = rangeOfSequence;
+    //Adjust default sequence size if window size has been changed
+    if(window_size * 2 > seq_size){
+        seq_size = 2 * window_size;
+    }
     //Recv window will always be 1 with GBN
     if(gbn){
         window_size = 1;

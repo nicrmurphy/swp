@@ -496,7 +496,7 @@ int main(int argc, char *argv[]) {
     string protocol;
     MAX_FRAME_SIZE = 65010;
     int timeoutInterval = 10;
-    int sizeOfWindow = 7;
+    int sizeOfWindow = 5;
     int rangeOfSequence = 20;
     bool* errorArray = NULL;
     
@@ -507,8 +507,6 @@ int main(int argc, char *argv[]) {
     }
     char *host = argv[1];
     filepath = argv[2];
-    window_size = 5;
-    seq_size = 20;
     acked = new bool[window_size];
     memset(acked, 0, window_size);
     promptUserInput(&protocol, &MAX_FRAME_SIZE, &timeoutInterval, &sizeOfWindow, &rangeOfSequence, &errorArray);
@@ -517,6 +515,10 @@ int main(int argc, char *argv[]) {
     if (gbn) gbn_timeout = timeoutInterval;    // in ms
     window_size = sizeOfWindow;
     seq_size = rangeOfSequence;
+    //Adjust default sequence size if window size has been changed
+    if(window_size * 2 > seq_size){
+        seq_size = 2 * window_size;
+    }
     // prepare socket
     struct addrinfo hints, *servinfo, *clientinfo;
     memset(&hints, 0, sizeof hints);
