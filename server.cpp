@@ -388,7 +388,7 @@ int window_recv_file(char *data, size_t *data_filled, bool* errorArray, bool* da
                             cout << "Received duplicate packet " << seq_num << "." << endl;
                     }else{
                         cout << "Packet " << seq_num << " received" << endl;
-                        if(seq_num != lw){
+                        if(seq_num != lw && !frame_error){
                             cout << "Packet " << seq_num << " arrived out of order. Resequencing." << endl;
                         }
                     }
