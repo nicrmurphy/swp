@@ -5,17 +5,17 @@ NOPRINT = -D_DEBUG=0
 all: server client
 noprint: server_noprint client_noprint
 	
-server: server.cpp
-	$(CC) $(CFLAGS) server.cpp -o server
+server: balfanz_murphy_sell_server.cpp
+	$(CC) $(CFLAGS) balfanz_murphy_sell_server.cpp -o server
 
-client: client.cpp
-	$(CC) $(CFLAGS) client.cpp -o client
+client: balfanz_murphy_sell_client.cpp
+	$(CC) $(CFLAGS) balfanz_murphy_sell_client.cpp -o client
 	
-server_noprint: server.cpp
-	$(CC) $(CFLAGS) $(NOPRINT) server.cpp -o server
+server_noprint: balfanz_murphy_sell_server.cpp
+	$(CC) $(CFLAGS) $(NOPRINT) balfanz_murphy_sell_server.cpp -o server
 
-client_noprint: client.cpp
-	$(CC) $(CFLAGS) $(NOPRINT) client.cpp -o client
+client_noprint: balfanz_murphy_sell_client.cpp
+	$(CC) $(CFLAGS) $(NOPRINT) balfanz_murphy_sell_client.cpp -o client
 
 clean:
 	rm -rf server client *.dSYM
