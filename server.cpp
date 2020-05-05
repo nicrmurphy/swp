@@ -117,45 +117,101 @@ bool* promptErrors(int sequenceRange, bool damage){
     return errors;
 }
 
+int getIntInput(){
+    string input;
+    cout << "> ";
+    getline(cin, input);
+    if(!input.empty() || input.compare("\n") == 0){
+        bool noError = false;
+        while(!noError){
+            try{
+                int temp = stoi(input);
+                if(temp >= 0) return temp;
+                else throw 20;
+            } catch(...) {
+                cout << "Invalid Input. Try again." << endl;
+                cout << "> ";
+                cin >> input;
+                noError = false;
+            }
+        }
+    }
+
+    return -1;
+}
+
 void promptUserInput(string* protocol, int* packetSize, int* sizeOfWindow, int* rangeOfSequence, bool** errorArray, bool** damageArray){
     //START USER INPUT
     
     string input;
+    int intResult;
 
-    cout << "Type of protocol (GBN or SR) (SR default): ";
+    cout << "Type of protocol (GBN or SR) (SR default)" << endl;
+    cout << "> ";
     getline(cin, input);
     if(!input.empty()){
-        stringstream stream(input);
-        stream >> *protocol;
+        if(input.compare("GBN") == 0 || input.compare("SR") == 0){
+            *protocol = input;
+        } 
     }
-    cout << "Packet Size (B) (65010 B default): ";
-    getline(cin, input);
-    if(!input.empty()){
-        istringstream stream(input);
-        stream >> *packetSize;
-    }
-    cout << "Size of sliding window (5 default): ";
-    getline(cin, input);
-    if(!input.empty()){
-        istringstream stream(input);
-        stream >> *sizeOfWindow;
-    }
-    cout << "Range of sequence numbers (20 default): ";
-    getline(cin, input);
-    if(!input.empty()){
-        istringstream stream(input);
-        stream >> *rangeOfSequence;
+    cout << "Packet Size (B) (65010 B default)" << endl;
+    intResult = getIntInput();
+
+    if(intResult != -1){
+        *packetSize = intResult;
     }
 
-    string userInput;
-    cout << "Situational Errors" << endl;
+    cout << "Size of sliding window (5 default)" << endl;
+    intResult = getIntInput();
+
+    if(intResult != -1){
+        *sizeOfWindow = intResult;
+    }
+
+    cout << "Range of sequence numbers (20 default)" << endl;
+    intResult = getIntInput();
+
+    if(intResult != -1){
+        while(!(*sizeOfWindow < (intResult + 1) / 2)){
+            cout << "Invalid input. Range of sequence numbers must be 2x + 1 the window size (" << *sizeOfWindow << "). Try again." << endl;
+            intResult = getIntInput();            
+        }
+        *rangeOfSequence = intResult;
+    }
+
+
+    cout << "Situational Errors (Default: None)" << endl;
     cout << "------------------" << endl;
     cout << "1. None" << endl;
     cout << "2. Randomly Generated" << endl;
     cout << "3. User-Specified" << endl;
     cout << "> ";
-    getline(cin, userInput);
-    if(userInput.compare("1") == 0){
+    getline(cin, input);
+    if(!input.empty()){
+        while(*errorArray == NULL){
+            if(input.compare("1") == 0){
+                *errorArray = (bool*)malloc(sizeof(bool) * (*rangeOfSequence));
+                for(int i = 0; i < *rangeOfSequence; i++){
+                    (*errorArray)[i] = false;
+                }
+
+                *damageArray = (bool*)malloc(sizeof(bool) * (*rangeOfSequence));
+                for(int i = 0; i < *rangeOfSequence; i++){
+                    (*damageArray)[i] = false;
+                }
+            } else if(input.compare("2") == 0){
+                *errorArray = generateErrors(*rangeOfSequence);
+                *damageArray = generateErrors(*rangeOfSequence);
+            } else if(input.compare("3") == 0){
+                *errorArray = promptErrors(*rangeOfSequence, false);
+                *damageArray = promptErrors(*rangeOfSequence, true);
+            } else{
+                cout << "Invalid input. Try again." << endl;
+                cout << "> ";
+                getline(cin, input);
+            }
+        }
+    } else {
         *errorArray = (bool*)malloc(sizeof(bool) * (*rangeOfSequence));
         for(int i = 0; i < *rangeOfSequence; i++){
             (*errorArray)[i] = false;
@@ -165,12 +221,6 @@ void promptUserInput(string* protocol, int* packetSize, int* sizeOfWindow, int* 
         for(int i = 0; i < *rangeOfSequence; i++){
             (*damageArray)[i] = false;
         }
-    } else if(userInput.compare("2") == 0){
-        *errorArray = generateErrors(*rangeOfSequence);
-        *damageArray = generateErrors(*rangeOfSequence);
-    } else if(userInput.compare("3") == 0){
-        *errorArray = promptErrors(*rangeOfSequence, false);
-        *damageArray = promptErrors(*rangeOfSequence, true);
     }
     //END USER INPUT
 }
@@ -430,7 +480,7 @@ int main(int argc, char *argv[]) {
     int packetSize = 65010;
     int sizeOfWindow = 7;
     int rangeOfSequence = 20;
-    bool* errorArray;
+    bool* errorArray = NULL;
     bool* damageArray;
     srand(time(NULL));
     promptUserInput(&protocol, &packetSize, &sizeOfWindow, &rangeOfSequence, &errorArray, &damageArray);
