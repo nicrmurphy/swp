@@ -336,11 +336,11 @@ void print_stats() {
  */
 int window_recv_file(char *data, size_t *data_filled, bool* errorArray, bool* damageArray) {
     ofstream dst(filepath);
-    char *window[seq_size];
-    for (int i = 0; i < seq_size; i++)
-    {
-        window[i] = new char[MAX_DATA_SIZE];
-    }
+    char window[seq_size][MAX_DATA_SIZE];
+    // for (int i = 0; i < seq_size; i++)
+    // {
+    //     window[i] = new char[MAX_DATA_SIZE];
+    // }
     sockaddr_storage client;
     socklen_t addr_len = sizeof client;
     char frame[MAX_FRAME_SIZE];
@@ -407,7 +407,9 @@ int window_recv_file(char *data, size_t *data_filled, bool* errorArray, bool* da
                 if(_DEBUG && gbn) cout << "Packet " << seq_num << " received. Out of window." << endl;
                 else if(_DEBUG) cout << "Received duplicate packet " << seq_num << "." << endl;
                 if(gbn){
-                    send_ack(sockfd, client, addr_len, last_ack());
+                    if(num_packets_recv > 0){
+                        send_ack(sockfd, client, addr_len, last_ack());
+                    }
                 }else{
                     send_ack(sockfd, client, addr_len, seq_num); 
                 }
@@ -467,10 +469,10 @@ int window_recv_file(char *data, size_t *data_filled, bool* errorArray, bool* da
             dst.close();
         }
     }
-    for (int i = 0; i < seq_size; i++)
-    {
-        delete[] window[i];
-    }
+    // for (int i = 0; i < seq_size; i++)
+    // {
+    //     delete[] window[i];
+    // }
 
     
     
