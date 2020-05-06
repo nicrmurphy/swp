@@ -2,7 +2,7 @@
 Implementation of Sliding Window Protocols
 
 ## TODO
-- [ ] Reliable communication between two processes, e.g., A and B, with error-handling using the Internet Checksum or the CRC checksum algorithm
+- [x] Reliable communication between two processes, e.g., A and B, with error-handling using the Internet Checksum or the CRC checksum algorithm
   - [x] Datagram socket communication
     - [x] Simple communication (strings)
     - [x] FTP for any (one) client to any (one) server
@@ -15,7 +15,7 @@ Implementation of Sliding Window Protocols
   - [x] Simulate packet loss
     - [x] Randomly generated
     - [x] User-defined
-  - [ ] Simulate damaged packet
+  - [x] Simulate damaged packet
 
 - [ ] Helpers
   - [x] Checksum
@@ -30,8 +30,8 @@ Implementation of Sliding Window Protocols
   - [x] Go Back N Protocol
   - [x] Selective Repeat Protocol
 
-- [ ] GUI
-  - [ ] Server
+- [x] GUI
+  - [x] Server
     - [x] User input
       - [x] Select Protocol
       - [x] Packet Size
@@ -39,28 +39,28 @@ Implementation of Sliding Window Protocols
       - [x] Window Size
       - [x] Range of Sequence Numbers
       - [1] Situational Errors (none, randomly generated, or user-specified, i.e., drop packets 2, 4, 5, lose acks 11, etc.)
-    - [ ] Console output
+    - [x] Console output
       - [x] Packets (sequence number) received
-      - [ ] Damaged packet(s) (checksum error should match corresponding damaged packet from sender window)
+      - [x] Damaged packet(s) (checksum error should match corresponding damaged packet from sender window)
       - [x] Packets in the current receiver window.
-      - [ ] Packets (duplicated) that are discarded
+      - [x] Packets (duplicated) that are discarded
       - [x] Ack packets that are sent
-      - [ ] Frames arriving out of order should be re-sequenced before assembly
-  - [ ] Client
-    - [ ] User input
+      - [x] Frames arriving out of order should be re-sequenced before assembly
+  - [x] Client
+    - [x] User input
       - [x] Server Host
       - [x] Select Protocol
       - [x] Packet Size
       - [x] Timeout Interval (user-specified or ping-calculated)
       - [x] Window Size
       - [x] Range of Sequence Numbers
-      - [ ] Situational Errors (none, randomly generated, or user-specified, i.e., drop packets 2, 4, 5, lose acks 11, etc.)
-    - [ ] Console output
+      - [x] Situational Errors (none, randomly generated, or user-specified, i.e., drop packets 2, 4, 5, lose acks 11, etc.)
+    - [x] Console output
       - [x] Packet sequence number of packet sent
       - [x] Packet (sequence number) that timed out
       - [x] Packet that was re-transmitted
       - [x] All packets in the current window
       - [x] Acks received
-      - [ ] Which packets are damaged, .i.e., deliberately trigger a checksum error on the receiver side
+      - [x] Which packets are damaged, .i.e., deliberately trigger a checksum error on the receiver side
 
-- [ ] Design document, describing and justifying design decisions
+- [x] Design document, describing and justifying design decisions
