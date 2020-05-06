@@ -572,7 +572,7 @@ int main(int argc, char *argv[]) {
     print_stats(start_time);
 
     delete[] acked;
-    delete[] errorArray;
+    free(errorArray);
     close(sockfd);
     freeaddrinfo(clientinfo);
     freeaddrinfo(servinfo);

@@ -524,8 +524,8 @@ int main(int argc, char *argv[]) {
 
     delete[] data;
     delete[] recv_size;
-    delete[] errorArray;
-    delete[] damageArray;
+    free(errorArray);
+    free(damageArray);
 
 
     // char client_addr[INET6_ADDRSTRLEN];
